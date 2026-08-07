@@ -1,3 +1,3 @@
-# Repo TP1 Ingenieria de Software 3
+# Proyecto IngSoft3 - versión B
 ## Instalacion 
 git clone https://github.com/SantinoSchiavoni/ingsoft3-tp01
