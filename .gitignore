@@ -4,13 +4,22 @@ bin/
 obj/
 dist/
 build/
+coverage/
+.next/
+*.log
 
 # secretos: NUNCA se versionan
 .env
+.env.*
+!.env.example
 *.local
+
+# Prisma artifacts
+prisma/*.db
+prisma/*.db-journal
 
 # basura del sistema operativo y del editor
 .DS_Store
 Thumbs.db
 .vscode/
-.idea/
+.idea/
