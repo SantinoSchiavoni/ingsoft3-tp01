@@ -10,7 +10,7 @@ async function bootstrap(): Promise<void> {
   const configService = app.get(ConfigService);
   const port = configService.get<number>("port") || 3000;
   const corsOrigin =
-    configService.get<string>("corsOrigin") || "http://localhost:8080";
+    configService.get<string>("corsOrigin") || "http://localhost:41777";
 
   app.enableCors({
     origin: corsOrigin,

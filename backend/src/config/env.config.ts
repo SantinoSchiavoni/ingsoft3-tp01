@@ -11,5 +11,5 @@ export const envConfig = (): EnvConfig => ({
   databaseUrl:
     process.env.DATABASE_URL ||
     "postgresql://orderflow:orderflow@localhost:5432/orderflow?schema=public",
-  corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:8080',
+  corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:41777',
 });

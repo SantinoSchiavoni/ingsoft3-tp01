@@ -26,7 +26,8 @@ async function main() {
       name: 'Teclado Mecánico',
       description: 'Teclado mecánico RGB switch azul',
       price: 80.0,
-      stock: 20,
+      // Stock disponible luego del pedido confirmado de 2 unidades.
+      stock: 18,
       active: true,
     },
   });
@@ -46,7 +47,8 @@ async function main() {
       name: 'Notebook 15"',
       description: 'Intel i7 16GB RAM 512GB SSD',
       price: 900.0,
-      stock: 5,
+      // Stock disponible luego del pedido en preparación de 1 unidad.
+      stock: 4,
       active: true,
     },
   });
