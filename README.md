@@ -31,7 +31,7 @@
 PORT=3000
 NODE_ENV=development
 DATABASE_URL="postgresql://orderflow:orderflow@localhost:5432/orderflow?schema=public"
-CORS_ORIGIN="http://localhost:5173"
+CORS_ORIGIN="http://localhost:41777"
 ```
 
 ### Frontend (`/frontend/.env`)
@@ -43,13 +43,13 @@ VITE_API_URL="http://localhost:3000"
 
 ## 🐳 Ejecución con Docker Compose (Recomendado)
 
-Inicia toda la infraestructura (**PostgreSQL**, **Backend NestJS** y **Frontend Vite**) con un solo comando:
+Inicia toda la infraestructura (**PostgreSQL**, **Backend NestJS** y **Frontend Nginx**) con un solo comando:
 
 ```bash
 docker compose up --build
 ```
 
-- **Frontend**: [http://localhost:5173](http://localhost:5173)
+- **Frontend**: [http://localhost:41777](http://localhost:41777)
 - **Backend API**: [http://localhost:3000/api/orders](http://localhost:3000/api/orders)
 - **Healthcheck**: [http://localhost:3000/health](http://localhost:3000/health)
 
@@ -66,7 +66,7 @@ cd backend
 npm ci
 npx prisma generate
 npx prisma migrate dev --name init
-npx ts-node prisma/seed.ts
+npm run prisma:seed
 npm run start:dev
 ```
 
@@ -133,4 +133,4 @@ npm run build
 ---
 
 ## 📄 Registro de Decisiones
-Consulta el archivo [`decisiones_orderflow.md`](file:///c:/Users/gabif/OneDrive/UCC/4to/Ing%20Softw%203/ingsoft3-tp01/decisiones_orderflow.md) para revisar las decisiones de arquitectura de OrderFlow.
+Las decisiones de la materia y de arquitectura de OrderFlow se documentan en [`decisiones.md`](decisiones.md).

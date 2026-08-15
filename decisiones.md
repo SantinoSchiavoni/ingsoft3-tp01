@@ -19,3 +19,103 @@ ssh -T git@github-ucc
 ### 3. Declaración de uso de IA: qué partes hiciste con ayuda de inteligencia artificial y cómo verificaste lo que te devolvió (§ Uso de IA del enunciado).
 
 Como mencione arriba, use IA para solucionar ese conflicto, no para resolver el ejercicio, ya que sabia como manejar PR y conflictos.
+
+# TP2 — Selección de aplicación: OrderFlow
+
+## Aplicación elegida
+
+**OrderFlow** es un gestor interno de productos y pedidos. Permite administrar productos, crear pedidos y recorrer su ciclo de vida (`PENDING`, `CONFIRMED`, `PREPARING`, `DELIVERED` o `CANCELLED`), manteniendo el stock consistente.
+
+## Criterios de selección
+
+- **Ejecución local:** la aplicación se levanta con `docker compose up --build`, incluyendo PostgreSQL, backend y frontend. También puede ejecutarse manualmente con Node.js y una instancia de PostgreSQL.
+- **Tests:** el backend contiene pruebas unitarias del dominio y de casos de uso con Jest; el frontend cuenta con pruebas con Vitest.
+- **Comprensión y modificación:** el backend usa una separación explícita entre dominio, aplicación, infraestructura y presentación, por lo que las reglas de negocio y sus cambios son fáciles de localizar y explicar en una defensa.
+- **Alcance:** contiene un CRUD de productos y las pantallas de listado, creación y detalle de pedidos. El tamaño es deliberadamente acotado para poder evolucionarlo durante el semestre.
+- **Aplicación individual:** OrderFlow es una aplicación propia, elegida para este repositorio y esta cursada.
+
+## ADR-001 — Stack tecnológico principal
+
+### Contexto
+
+Se requiere una aplicación full-stack pequeña, clara, fuertemente tipada y mantenible para Ingeniería de Software III.
+
+### Decisión
+
+- Frontend: React + TypeScript + Vite.
+- Backend: NestJS + TypeScript.
+- Base de datos: PostgreSQL 16.
+- ORM: Prisma.
+
+### Consecuencias
+
+- Se utiliza TypeScript en frontend y backend.
+- El tipado reduce errores de integración y evita el uso de `any`.
+- Vite permite builds rápidos y el stack mantiene una complejidad adecuada para el proyecto.
+
+## ADR-002 — Arquitectura hexagonal / Clean Architecture liviana
+
+### Contexto
+
+Se necesita desacoplar las reglas de negocio de NestJS, Prisma y HTTP para poder probarlas sin dependencias externas y facilitar su comprensión.
+
+### Decisión
+
+El backend se organiza en cuatro capas:
+
+1. **Domain:** entidades, enums, errores e interfaces de repositorio sin dependencias de NestJS o Prisma.
+2. **Application:** casos de uso que coordinan reglas y repositorios.
+3. **Infrastructure:** adaptadores concretos de persistencia con Prisma y transacciones.
+4. **Presentation:** DTOs y controladores HTTP de NestJS.
+
+### Consecuencias
+
+- Las reglas de negocio son testeables sin levantar HTTP ni PostgreSQL.
+- La infraestructura puede cambiarse sin alterar el dominio.
+
+## ADR-003 — Manejo de dinero y decimales
+
+### Contexto
+
+Los números de punto flotante de JavaScript pueden introducir errores de redondeo.
+
+### Decisión
+
+PostgreSQL persiste importes como `decimal(12,2)` mediante el tipo `Decimal` de Prisma. En el dominio, los cálculos se redondean a dos decimales con `Math.round((amount + Number.EPSILON) * 100) / 100`.
+
+### Consecuencias
+
+- Los valores almacenados de precios, subtotales y totales conservan dos decimales.
+- Los cálculos de pedidos evitan errores habituales de punto flotante a la precisión que requiere la aplicación.
+
+## ADR-004 — Claves primarias autoincrementales
+
+### Contexto
+
+Para facilitar lectura, pruebas y defensa oral se priorizan identificadores simples.
+
+### Decisión
+
+`Product`, `Order` y `OrderItem` utilizan enteros autoincrementales.
+
+### Consecuencias
+
+- Los pedidos e integraciones REST se identifican de manera directa, por ejemplo `GET /api/orders/1`.
+
+## ADR-005 — Máquina de estados y gestión transaccional de stock
+
+### Contexto
+
+Confirmar o cancelar un pedido modifica el stock y requiere mantener la consistencia de los datos.
+
+### Decisión
+
+- Al confirmar un pedido, se valida disponibilidad y se descuenta stock dentro de una transacción Prisma.
+- Al cancelar un pedido confirmado, se restaura el stock dentro de una transacción Prisma.
+- Un pedido entregado es inmutable y un pedido cancelado es final.
+- En Docker, al iniciar el backend se ejecutan migraciones y se cargan datos de ejemplo solo cuando la base está vacía. Esta facilidad está pensada para desarrollo local; no se aplicará como estrategia de producción.
+
+### Consecuencias
+
+- Las transiciones de estado y los cambios de stock son atómicos para el caso de uso previsto.
+- El entorno local queda listo para usar con un único comando.
