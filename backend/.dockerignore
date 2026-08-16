@@ -1,0 +1,21 @@
+# Dependencias locales: Docker las instala con npm ci
+node_modules/
+
+# Resultado del build local: se genera dentro de la imagen
+dist/
+
+# Archivos de Git
+.git/
+.gitignore
+
+# Variables de entorno y secretos: pasarlas al ejecutar el contenedor
+.env
+.env.*
+
+# Logs y resultados locales
+npm-debug.log*
+coverage/
+
+# Archivos del sistema/editor
+.DS_Store
+.vscode/
