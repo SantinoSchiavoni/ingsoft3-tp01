@@ -21,4 +21,4 @@ else
 fi
 
 echo "Starting NestJS server..."
-exec node dist/src/main
+exec node dist/main
