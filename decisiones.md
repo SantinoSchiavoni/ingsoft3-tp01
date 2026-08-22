@@ -1,9 +1,18 @@
-### 1. Por qué Git no pudo resolver el conflicto solo — y qué habría tenido que pasar para que nunca apareciera.
+# Índice
+
+1. [TP1 - Git Colaborativo](#tp1---git-colaborativo)
+2. [TP2 — Selección de aplicación: OrderFlow](#tp2--selección-de-aplicación-orderflow)
+3. [TP3 - Planificacion DevOps](#tp3---planificacion-devops)
+
+---
+
+# TP1 - Git Colaborativo
+## 1. Por qué Git no pudo resolver el conflicto solo — y qué habría tenido que pasar para que nunca apareciera.
 
 Git no pudo resolver el conflicto por si solo ya que primero subimos los cambios desde la rama 'feature/titulo-a' y modificamos la linea 1 del readme, subimos los cambios a 'main', y no sucede nada porque fue el primer cambio en agregarse. Luego cuando quisimos subir los cambios desde la rama 'feature/titulo-b', la misma estaba desactualizada con la rama 'main' y encima ambas ramas modificaron la misma linea de codigo, entonces desde el editor tuvimos q resolver el conflicto(tambien se puede hacer desde terminal y en nuestro editor de codigo, haciendo git pull origin main en la rama y solucionando conflicto)
 Para que nunca apareciera el conflicto, ambas ramas no deberian modificar la misma linea de codigo, entonces por mas que este desactualizada, no hay conflicto entre los 2 cambios
 
-### 2. Qué problemas encontraste y cómo los solucionaste. Los tropiezos bien contados valen más que un camino perfecto: son los que demuestran que entendiste.
+## 2. Qué problemas encontraste y cómo los solucionaste. Los tropiezos bien contados valen más que un camino perfecto: son los que demuestran que entendiste.
 
 El mayor problema que encontre fue el siguiente, como yo tengo 2 cuentas operativas de github (mia personal UCC y cuenta que me brindo la empresa donde trabajo) se me genero un conflicto de cual estaba configurada globalmente, entonces cuando quise subir los primeros cambios no me permitia porque tenia la otra cuenta(trabajo).
 Yo para clonar el repo y acceder vengo utilizando ssh, entonces le pregunte a chatgpt como solucionar eso, porque no me acordaba como hacer para cambiar de clave. Dejo a continuacion los comandos que corri para solucionar el conflicto
@@ -16,11 +25,11 @@ git remote -v
 ssh -T git@github-ucc
 ```
 
-### 3. Declaración de uso de IA: qué partes hiciste con ayuda de inteligencia artificial y cómo verificaste lo que te devolvió (§ Uso de IA del enunciado).
+## 3. Declaración de uso de IA: qué partes hiciste con ayuda de inteligencia artificial y cómo verificaste lo que te devolvió (§ Uso de IA del enunciado).
 
 Como mencione arriba, use IA para solucionar ese conflicto, no para resolver el ejercicio, ya que sabia como manejar PR y conflictos.
 
-# TP2 — Selección de aplicación: OrderFlow
+# TP2 - Selección de aplicación: OrderFlow
 
 ## Aplicación elegida
 
@@ -119,3 +128,21 @@ Confirmar o cancelar un pedido modifica el stock y requiere mantener la consiste
 
 - Las transiciones de estado y los cambios de stock son atómicos para el caso de uso previsto.
 - El entorno local queda listo para usar con un único comando.
+
+# TP3 - Planificacion DevOps
+## Duracion del Sprint
+- Elegi una duracion de **2 semanas** para el sprint porque me permite trabajar con objetivos acotados, poder estar encima del proyecto pero no a las corridas por terminar. Me permite tambien ser mas flexible frente a los cambios de los Trabajos Practicos, y darme flexibilidad si un trabajo me lleva un poco mas de tiempo.
+
+## Límite de trabajo en progreso y su porqué.
+- Para el limite del trabajo en progreso elegi **2 tareas en simultaneo**, porque siguiendo el calculo que vimos en el video (numero de personas involucradas + 1) lo que me da un resultado de 2.
+
+## El diagnóstico de la historia mal escrita 
+- La historia está mal escrita porque describe una implementación técnica (“crear la tabla usuarios”) en lugar de una necesidad. En realidad, eso debería ser una tarea dentro de una historia.
+- Yo la HU la reescribiria asi: **"Como administrador quiero poder gestionar las cuentas de los usuarios para controlar sus accesos al sistema y sus permisos."** Luego si agregaria una tarea mas vinculada a la parte tecnica, algo como **"crear tabla usuarios"**.
+
+## Problemas encontrados
+- El unico problema q encontre es que no tenia `gh` instalado en mi maquina, por lo que tuve que instalarlo y loguearme primero para poder hacer los comandos por terminal
+
+## Uso de IA
+- En este TP, no utilice IA para el desarrollo del mismo, solamente para consultarle que opinaba de mi HU y mejorarla, pero le gusto lo que propuse, entonces lo use como validacion a lo que habia pensado.
+- Lo que si use IA para armar un indice aca en decisiones,asi es mas legible
