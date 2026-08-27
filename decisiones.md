@@ -3,6 +3,7 @@
 1. [TP1 - Git Colaborativo](#tp1---git-colaborativo)
 2. [TP2 — Selección de aplicación: OrderFlow](#tp2--selección-de-aplicación-orderflow)
 3. [TP3 - Planificacion DevOps](#tp3---planificacion-devops)
+4. [TP4 — CI: Pipelines as Code](#tp4--ci-pipelines-as-code)
 
 ---
 
@@ -146,3 +147,11 @@ Confirmar o cancelar un pedido modifica el stock y requiere mantener la consiste
 ## Uso de IA
 - En este TP, no utilice IA para el desarrollo del mismo, solamente para consultarle que opinaba de mi HU y mejorarla, pero le gusto lo que propuse, entonces lo use como validacion a lo que habia pensado.
 - Lo que si use IA para armar un indice aca en decisiones,asi es mas legible
+
+# TP4 — CI: Pipelines as Code
+
+## 1. **Estructura del pipeline**
+## 2. **Cache**
+## 3. **Dockerfile como fuente de verdad**
+## 4. **Problemas encontrados y soluciones**
+## 5. **Uso de IA**
