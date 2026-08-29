@@ -1,3 +1,5 @@
+[![CI](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/workflows/ci.yml/badge.svg)](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/workflows/ci.yml)
+
 # OrderFlow — Gestor de Pedidos Full-Stack
 
 **OrderFlow** es una aplicación full-stack diseñada e implementada para la materia **Ingeniería de Software III**. Es un sistema ligero, mantenible y limpio de gestión interna de productos y pedidos, estructurado bajo **Clean / Hexagonal Architecture** en el backend y una interfaz dinámica en **React + TypeScript + Vite** en el frontend.
