@@ -4,6 +4,7 @@ import {
   PRODUCT_REPOSITORY,
   ProductRepository,
 } from "../../domain/repositories/product.repository";
+import { GetProductsUseCaseInterface } from "./get-products.use-case.interface";
 
 @Injectable()
 export class GetProductsUseCase {
