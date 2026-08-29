@@ -151,12 +151,21 @@ Confirmar o cancelar un pedido modifica el stock y requiere mantener la consiste
 # TP4 — CI: Pipelines as Code
 
 ## 1. **Estructura del pipeline**
+- El pipeline se encuentra separado en dos jobs: build-backend y build-frontend, porque ambos componentes tienen procesos de construcción independientes. Al ejecutarse en paralelo se reduce el tiempo total del workflow y además se puede identificar con claridad cuál de los dos componentes falla.
+
 ## 2. **Cache**
+- El pipeline cachea las capas de las imágenes Docker y el cache de GitHub Actions. Se reutilizan las capas cuyo contenido y dependencias no cambiaron. Si cambia una instrucción o archivo del que depende una capa, esa capa y las siguientes deben reconstruirse. Si el cache desaparece, el pipeline debe seguir funcionando normalmente; simplemente tarda más porque reconstruye todo desde cero.
+
 ## 3. **Dockerfile como fuente de verdad**
+- El pipeline utiliza los Dockerfiles definidos en el TP2 para mantener una única fuente de verdad sobre cómo se construye la aplicación. Si el pipeline tuviera comandos propios para compilar backend y frontend, existirían dos definiciones distintas del proceso de build que podrían divergir. De esta forma, CI verifica exactamente el mismo proceso que después se utilizará para ejecutar o desplegar la aplicación.
+
 ## 4. **Problemas encontrados y soluciones**
 - Cuando vi las actions en github, veia que el frontend en la 2da corrida estaba cacheado, pero el backend no, entonces me puse a investigar y encontre que el problema era que en el build-backend me habia olvidado de definir el scope del cache, entonces lo agregue y ahora funciona correctamente. El scope que le puse es el siguiente:
+
 ``` bash
 cache-from: type=gha,scope=backend
 cache-to: type=gha,mode=max,scope=backend
 ```
+
 ## 5. **Uso de IA**
+- Use IA para que me ayude a completar la informacion de decisiones.md, porque yo entiendo lo que hace, pero no sabia como explicarlo, entonces le pase la informacion y me ayudo a redactar lo que puse en este archivo. Luego verifique que lo que me devolvio era correcto y entendible, y lo deje asi.
