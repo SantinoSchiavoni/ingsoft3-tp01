@@ -154,4 +154,9 @@ Confirmar o cancelar un pedido modifica el stock y requiere mantener la consiste
 ## 2. **Cache**
 ## 3. **Dockerfile como fuente de verdad**
 ## 4. **Problemas encontrados y soluciones**
+- Cuando vi las actions en github, veia que el frontend en la 2da corrida estaba cacheado, pero el backend no, entonces me puse a investigar y encontre que el problema era que en el build-backend me habia olvidado de definir el scope del cache, entonces lo agregue y ahora funciona correctamente. El scope que le puse es el siguiente:
+``` bash
+cache-from: type=gha,scope=backend
+cache-to: type=gha,mode=max,scope=backend
+```
 ## 5. **Uso de IA**
