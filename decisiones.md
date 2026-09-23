@@ -4,6 +4,7 @@
 2. [TP2 — Selección de aplicación: OrderFlow](#tp2--selección-de-aplicación-orderflow)
 3. [TP3 - Planificacion DevOps](#tp3---planificacion-devops)
 4. [TP4 — CI: Pipelines as Code](#tp4--ci-pipelines-as-code)
+5. [TP5 — Calidad automatizada: tests, coverage y el umbral que frena un merge](#tp5--calidad-automatizada-tests-coverage-y-el-umbral-que-frena-un-merge)
 
 ---
 
@@ -169,3 +170,100 @@ cache-to: type=gha,mode=max,scope=backend
 
 ## 5. **Uso de IA**
 - Use IA para que me ayude a completar la informacion de decisiones.md, porque yo entiendo lo que hace, pero no sabia como explicarlo, entonces le pase la informacion y me ayudo a redactar lo que puse en este archivo. Luego verifique que lo que me devolvio era correcto y entendible, y lo deje asi.
+
+---
+
+# TP5 — Calidad automatizada: tests, coverage y el umbral que frena un merge
+
+## 1. Tabla de equivalencias de stack (NestJS + Vite/Vitest vs .NET)
+
+Como nuestra aplicación no utiliza el stack de la cátedra (.NET + vitest con JS), detallamos las herramientas empleadas en cada aspecto técnico evaluado:
+
+| Requisito / Concepto | Cátedra (.NET + Vite/JS) | Nuestro Stack (NestJS + React/TS/Vitest) |
+|---|---|---|
+| **Dónde viven los tests** | Proyecto aparte `MiApi.Tests` / `algo.test.js` | Backend: al lado del código en `backend/src/**/*.spec.ts`. Frontend: `frontend/src/**/*.test.ts`. |
+| **Test parametrizado** | `[Theory]` + `[InlineData]` | `it.each([...])` tanto en Jest (Backend) como en Vitest (Frontend). |
+| **Inyección de dependencias** | Interfaz + constructor | TypeScript Interfaces + Constructor Injection en casos de uso desacoplados de Prisma; paso de cliente por parámetro en frontend (`getActiveProducts(fetcher)`). |
+| **Fabricar el doble (mock)** | Moq (`Mock<INotificador>`) | `jest.fn()` / `jest.Mocked<Repository>` en Backend; `vi.fn()` en Frontend. |
+| **Medición de cobertura** | Coverlet (`--collect:"XPlat Code Coverage"`) | `jest --coverage` en Backend; `vitest run --coverage` en Frontend. |
+| **Umbral que rompe el build** | `coverlet.msbuild` (`/p:Threshold=...`) | `coverageThreshold` en configuración de Jest; `coverage.thresholds` en Vitest. |
+| **Qué entra en la cuenta** | `/p:Exclude=...` | `collectCoverageFrom` en Jest (excluyendo arranque `main.ts`, módulos y DTOs); `include` en Vitest. |
+| **Reportes legibles** | ReportGenerator (Cobertura $\to$ HTML / Summary) | Repórteres nativos (`lcov`, `json-summary`, `text`, `html`). |
+| **Tests en Dockerfile** | `FROM build AS test` con SDK .NET | `FROM builder AS test` heredando Node 20 y dependencias completas (`npm ci`). |
+
+## 2. Qué lógica elegimos testear y por qué ESA (¿dónde duele un bug en OrderFlow?)
+
+OrderFlow es un sistema gestor de pedidos con inventario. En este tipo de sistemas, un fallo en la UI es incómodo pero un fallo en la lógica de negocio nuclear causa pérdidas económicas o inconsistencias irrecuperables. Decidimos testear cuatro reglas críticas:
+
+1. **Regla 1 — Validación y cálculo de items del pedido (`OrderItem`):**
+   - *Por qué:* Un precio negativo o una cantidad no entera o menor a 1 altera el inventario o genera importes negativos. Se testea el rechazo de cantidades inválidas (con tests parametrizados `it.each`), precios unitarios $\le 0$ y el redondeo exacto de decimales en subtotales (`unitPrice * quantity`).
+2. **Regla 2 — Integridad y composición del pedido (`Order`):**
+   - *Por qué:* Un pedido no puede nacer huérfano (sin items), ni con productos duplicados (deben acumularse en un único renglón), ni con un cliente inválido. Se prueban los casos de error de nombre vacío o menor a 2 caracteres y la detección de duplicados.
+3. **Regla 3 — Máquina de estados y ciclo de vida (`Order`):**
+   - *Por qué:* Romper las transiciones de estado (`PENDING` $\to$ `CONFIRMED` $\to$ `PREPARING` $\to$ `DELIVERED`) permitiría cancelar pedidos ya despachados o entregar pedidos no confirmados. Se verifican las transiciones válidas e invariantes clave: un pedido `DELIVERED` es inmutable y no se puede cancelar, y un pedido `CANCELLED` no puede reactivarse.
+4. **Regla 4 — Descuento y restauración transaccional de stock con dependencias externas (`ConfirmOrderUseCase` / `CancelOrderUseCase`):**
+   - *Por qué:* Es el punto de mayor dolor operativo. Vender sin stock genera roturas de stock; cancelar sin devolver stock pierde mercadería disponible. Aquí se emplea el **Mock obligatorio** aislando la base de datos y verificando que el caso de uso invoque atómicamente a `confirmWithStockDeduction` con los ítems y cantidades exactas.
+
+En el **Frontend**, se aislaron y testearon las reglas puras equivalentes en `src/utils/order-logic.ts` (sin acoplar a React ni al DOM):
+- Test parametrizado (`it.each`) para los permisos de cancelación según el estado del pedido.
+- Caso de error para la longitud y presencia del nombre del cliente.
+- Cálculo acumulativo del total de pedidos con redondeo a dos decimales.
+- Test con **Mock obligatorio** (`vi.fn()`) para la obtención y filtrado de productos activos sin tocar la red.
+
+## 3. Refactorización para poder mockear: qué se cambió y por qué no se podía testear antes
+
+- **En Backend:** Los casos de uso de OrderFlow ya se concibieron aplicando Arquitectura Hexagonal y Principio de Inversión de Dependencias (DIP). `ConfirmOrderUseCase` recibe `OrderRepository` y `ProductRepository` por constructor. Esto evitó tener que instanciar la base de datos real o Prisma dentro del caso de uso. El mock se configuró con `jest.fn()` simulando las consultas y verificando mediante `expect(mockOrderRepository.confirmWithStockDeduction).toHaveBeenCalledWith(...)` que la interacción sucediera con los parámetros correctos.
+- **En Frontend:** Anteriormente las funciones en páginas y componentes realizaban llamadas directas a `fetch` o estaban acopladas a la API global (`api.ts`). Siguiendo el ejemplo de la cátedra (§3.0), refactorizamos extrayendo la lógica pura a `frontend/src/utils/order-logic.ts`, donde `getActiveProducts` recibe el cliente HTTP (`fetcher`) como parámetro inyectado. De esta manera, el test unitario puede pasarle un doble de prueba creado con `vi.fn().mockResolvedValue(...)` y verificar que llame a la ruta `/api/products` sin depender de un servidor backend activo.
+
+## 4. Por qué un coverage alto no garantiza calidad (con ejemplo concreto de OrderFlow)
+
+La cobertura de código (*code coverage*) mide únicamente qué porcentaje de las líneas o ramas se **ejecutaron**, pero no si el comportamiento fue **verificado**.
+
+**Ejemplo en OrderFlow:**
+Consideremos la función de cálculo del total:
+```typescript
+export function calculateOrderTotal(items: { unitPrice: number; quantity: number }[]): number {
+  if (!items || items.length === 0) return 0;
+  const total = items.reduce((acc, item) => acc + item.unitPrice * item.quantity, 0);
+  return Math.round((total + Number.EPSILON) * 100) / 100;
+}
+```
+Podríamos escribir el siguiente test:
+```typescript
+it('cobertura sin verdad', () => {
+  calculateOrderTotal([{ unitPrice: 100, quantity: 2 }]);
+  // No hay ningún expect() o assert
+});
+```
+Al correr la cobertura con Jest o Vitest, este test registrará **100% de line coverage** y **100% de branch coverage** sobre `calculateOrderTotal`. Sin embargo, si mañana un desarrollador introduce un bug y cambia la línea por:
+```typescript
+const total = items.reduce((acc, item) => acc + item.unitPrice, 0); // ¡Olvidó multiplicar por la cantidad!
+```
+El test seguirá ejecutándose en **verde**, el pipeline no detectará nada y se desplegará a producción una función que cobra de menos al cliente. Por eso, el coverage es solo un detector de código no ejercitado; la verdadera seguridad reside en la calidad de los asserts, la verificación de casos de borde y los tests de mutación.
+
+## 5. **Problemas encontrados y soluciones (Tarea 1)**
+
+- **Reconocimiento de tipos de Jest en VS Code:** Al abrir el repositorio desde la carpeta raíz (`ingsoft3-tp01`), el servidor de TypeScript de VS Code no asociaba automáticamente las definiciones de tipos globales de `@types/jest` ubicadas en la subcarpeta `backend/node_modules/`, arrojando advertencias en el editor (`Cannot find name 'describe'`, `Cannot find namespace 'jest'`). 
+  - *Solución:* Se agregó la directiva `/// <reference types="jest" />` al inicio de los archivos de prueba, se especificó `"types": ["jest", "node"]` en [`backend/tsconfig.json`](file:///home/santinoschiavoni/Documents/UCC/4to/ingsoft3-tp01/backend/tsconfig.json) y se garantizó la disponibilidad de `node_modules` local para que el IDE resuelva los tipos sin depender exclusivamente del build de Docker.
+- **Diferencia entre métodos de test reales vs. datos parametrizados:** El profesor advirtió explícitamente en clase no utilizar un único test parametrizado con 8 datos para inflar la cuenta de pruebas.
+  - *Solución:* Se escribieron **15 métodos de test reales y distintos (`it(...)`)** repartidos en 4 reglas de negocio. El test parametrizado aporta 4 ejecuciones dinámicas sobre un único método, totalizando 18 ejecuciones en consola, superando ampliamente el piso de 8 métodos exigidos.
+
+## 6. **Guía rápida para la defensa oral (Preguntas del TP5 - Tarea 1)**
+
+- **¿Dónde están ubicados los tests en la pirámide de testing?**
+  Están en la **base** (unit tests). Son pruebas aisladas, deterministas y de ejecución en milisegundos que prueban lógica pura y casos de uso sin tocar base de datos ni red.
+- **¿Qué es la estructura AAA y por qué el nombre del test importa?**
+  AAA divide cada prueba en **Arrange** (preparar datos y dobles), **Act** (ejecutar la acción bajo prueba) y **Assert** (verificar el resultado o interacción). El nombre describe el **comportamiento y la regla** (ej. `rechaza_nombre_de_cliente_menor_a_dos_caracteres_o_con_solo_espacios`) para que si falla en CI a la madrugada, el nombre sea el diagnóstico directo sin tener que leer la implementación.
+- **¿Qué diferencia hay entre un Mock y un Stub?**
+  Un **stub** solo suministra respuestas preparadas sin verificar nada. Un **mock** es un doble sobre el cual el assert comprueba la **interacción** (ej. `expect(mockOrderRepository.confirmWithStockDeduction).toHaveBeenCalledWith(...)`). Si se cambiara la lógica para descontar cantidad 0, el mock lo detecta y falla.
+- **¿Por qué la consola dice 18 tests si son 15 métodos?**
+  Porque el método parametrizado con `it.each` evalúa 4 casos de borde distintos. Los 15 métodos reales cubren con holgura el mínimo de 8 exigido.
+
+## 7. **Declaración de uso de IA (Tarea 1)**
+
+Se utilizó un asistente de inteligencia artificial para:
+- Estructurar formalmente los bloques AAA (`// Arrange`, `// Act`, `// Assert`) y la parametrización con `it.each` según las convenciones exigidas por la cátedra.
+- Diseñar la inyección de dependencias en `frontend/src/utils/order-logic.ts` para emular el patrón del backend y permitir mockear el cliente HTTP.
+- Todos los tests y aserciones fueron ejecutados y validados localmente en contenedores Docker para certificar su paso en verde y el cumplimiento estricto de las reglas del dominio de OrderFlow.
+
+

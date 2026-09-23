@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { CreateOrderItemInput, Product } from '../types';
+import { calculateOrderTotal, validateCustomerName } from '../utils/order-logic';
 
 interface OrderLineItem {
   productId: number;
@@ -71,14 +72,11 @@ export const CreateOrderPage: React.FC = () => {
     );
   };
 
-  // Frontend recalculates preview total
-  const calculatedTotal = items.reduce(
-    (acc, item) => acc + item.unitPrice * item.quantity,
-    0,
-  );
+  // Frontend recalculates preview total using pure business logic
+  const calculatedTotal = calculateOrderTotal(items);
 
   // Frontend validation checks for submit button disabled state
-  const isCustomerNameValid = customerName.trim().length >= 2 && customerName.trim().length <= 100;
+  const isCustomerNameValid = validateCustomerName(customerName).isValid;
   const isItemsValid = items.length > 0 && items.every((i) => i.quantity >= 1);
   const isFormValid = isCustomerNameValid && isItemsValid;
 
