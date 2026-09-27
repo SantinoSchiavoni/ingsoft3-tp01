@@ -15,7 +15,7 @@ RUN npm run build
 
 # ---- Etapa 2: tests unitarios y coverage ----
 FROM build AS test
-ENTRYPOINT ["npm", "run", "test:cov"]
+ENTRYPOINT ["npm", "run", "test:cov", "--", "--coverageDirectory=/out"]
 
 # ---- Etapa 3: ejecución de la aplicación ----
 FROM node:20-alpine AS runner

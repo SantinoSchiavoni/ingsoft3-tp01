@@ -105,7 +105,7 @@ xdg-open coverage/lcov-report/index.html
 
 > **Con Docker (desde la raíz del proyecto):**
 > ```bash
-> docker run --rm -v "$(pwd)/backend/coverage:/app/coverage" backend-test:ci
+> docker run --rm -v "$(pwd)/backend/coverage:/out" backend-test:ci
 > xdg-open backend/coverage/lcov-report/index.html
 > ```
 
@@ -128,7 +128,7 @@ xdg-open coverage/index.html
 
 > **Con Docker (desde la raíz del proyecto):**
 > ```bash
-> docker run --rm -v "$(pwd)/frontend:/app" -w /app frontend-builder:local npm run test:cov
+> docker run --rm -v "$(pwd)/frontend/coverage:/out" frontend-test:ci
 > xdg-open frontend/coverage/index.html
 > ```
 
