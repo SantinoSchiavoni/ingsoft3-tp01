@@ -337,5 +337,14 @@ Se utilizó un asistente de inteligencia artificial para:
 - Tras agregar estos tests, la suite aumentó a 19 tests pasando, la cobertura de líneas subió al **91.95%** y la de ramas al **89.47%**.
 - El pipeline volvió a ejecutarse, pasó a **VERDE** (✅), el botón de merge se desbloqueó y la PR fue mergeada a `main`.
 
+### 4. Tabla de enlaces que prueban cada decisión
+
+| Lo que se prueba | Enlace |
+|---|---|
+| **Resumen de cobertura y reporte descargable (corrida verde)** | [Actions Run 36289371645](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/runs/36289371645) |
+| **Corrida roja por umbral (número en el log: 67.81% < 70%)** | [Actions Run 36289012535](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/runs/36289012535) (Job: [build-frontend](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/runs/36289012535/job/108535307409)) |
+| **Secuencia rojo $\to$ tests $\to$ verde $\to$ merge (PR 1)** | [Pull Request #24](https://github.com/SantinoSchiavoni/ingsoft3-tp01/pull/24) |
+| **Freno vigente en rojo para defensa oral (PR 2)** | *Pendiente de creación (se deja abierto hasta la defensa)* |
+
 
 
