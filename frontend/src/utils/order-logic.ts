@@ -57,3 +57,32 @@ export async function getActiveProducts(
   const products = await fetcher('/api/products');
   return products.filter((p) => p.active);
 }
+
+/**
+ * Determina el nivel de prioridad y tiempo límite de entrega (SLA) de un pedido
+ * según su monto total, cantidad de ítems y condición de cliente VIP.
+ * (Nueva lógica de negocio para demostrar el bloqueo por cobertura insuficiente en CI)
+ */
+export function determineOrderPriority(order: {
+  total: number;
+  itemCount: number;
+  isVipCustomer?: boolean;
+}): { priority: 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL'; maxDeliveryHours: number } {
+  if (order.isVipCustomer) {
+    if (order.total > 50000) {
+      return { priority: 'CRITICAL', maxDeliveryHours: 12 };
+    }
+    return { priority: 'HIGH', maxDeliveryHours: 24 };
+  }
+
+  if (order.total >= 100000 || order.itemCount >= 20) {
+    return { priority: 'HIGH', maxDeliveryHours: 24 };
+  }
+
+  if (order.total >= 20000) {
+    return { priority: 'NORMAL', maxDeliveryHours: 48 };
+  }
+
+  return { priority: 'LOW', maxDeliveryHours: 72 };
+}
+

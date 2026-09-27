@@ -306,5 +306,45 @@ Se utilizó un asistente de inteligencia artificial para:
 - Configurar las etapas de prueba multi-stage en los Dockerfiles y los pasos de extracción de cobertura y reportes en `.github/workflows/ci.yml`.
 - Todos los tests, umbrales y scripts fueron ejecutados y validados localmente en contenedores Docker para certificar su correcto funcionamiento y paso en verde.
 
+## 10. **El Quality Gate en acción: evidencia del freno por cobertura (Tarea 3)**
+
+### 1. Evidencia de la falla y bloqueo del Pull Request
+- **Pull Request bloqueado por calidad:** [#24](https://github.com/SantinoSchiavoni/ingsoft3-tp01/pull/24)
+- **Corrida en rojo (Run ID):** [Actions Run 36289012535](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/runs/36289012535) (Job: [build-frontend](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/runs/36289012535/job/108535307409))
+- **Commit que introdujo la falla:** `84dade1` (*feat: agregar determinacion de prioridad de pedidos sin tests*)
+- **Resultado observado en GitHub Actions:**
+  - Los 13 tests existentes pasaron exitosamente (0 errores de código o compilación).
+  - La cobertura de líneas cayó a **67.81%**, quedando por debajo del umbral mínimo configurado del **70%**.
+  - Vitest (`v1.6.1` con motor `@vitest/coverage-v8`) arrojó el error:
+    ```
+    ERROR: Coverage for lines (67.81%) does not meet global threshold (70%)
+    Error: Process completed with exit code 1.
+    ```
+  - En GitHub, el check `CI / build-frontend (pull_request)` figuraba como `Required` en rojo (❌), el recuadro informó `Some checks were not successful`, y el botón `Squash and merge` quedó inhabilitado en gris, impidiendo el merge a `main`.
+
+### 2. Métrica por la cual frenó y comportamiento del runner
+- **Métrica que disparó el freno:** **Líneas (`lines`)**, cayendo de 88.13% a **67.81%**.
+- **Explicación técnica (Vitest v1.6.1):** En esta versión de Vitest con el proveedor V8, las ramas pertenecientes a una función que nunca es invocada por ningún test no se contabilizan inicialmente en el denominador de ramas (permanecieron en 83.33%), pero sí se computan todas sus líneas y sentencias como no cubiertas (`lines = 67.81%`). Al tener configurado el umbral tanto en líneas como en ramas al 70%, el gate frenó inmediatamente por la métrica de líneas.
+
+### 3. Recuperación de la calidad (Rojo $\to$ Verde $\to$ Merge)
+- Se identificaron y cubrieron los 6 caminos lógicos declarados por la nueva regla `determineOrderPriority` en `frontend/src/utils/order-logic.test.ts`:
+  1. Cliente VIP con total > $50.000 $\to$ `CRITICAL` (12h).
+  2. Cliente VIP con total $\le$ $50.000 $\to$ `HIGH` (24h).
+  3. Pedido general con total $\ge$ $100.000 $\to$ `HIGH` (24h).
+  4. Pedido general con volumen $\ge$ 20 ítems $\to$ `HIGH` (24h).
+  5. Pedido general con total entre $20.000 y $99.999 $\to$ `NORMAL` (48h).
+  6. Pedido general de bajo monto e ítems reducidos $\to$ `LOW` (72h).
+- Tras agregar estos tests, la suite aumentó a 19 tests pasando, la cobertura de líneas subió al **91.95%** y la de ramas al **89.47%**.
+- El pipeline volvió a ejecutarse, pasó a **VERDE** (✅), el botón de merge se desbloqueó y la PR fue mergeada a `main`.
+
+### 4. Tabla de enlaces que prueban cada decisión
+
+| Lo que se prueba | Enlace |
+|---|---|
+| **Resumen de cobertura y reporte descargable (corrida verde)** | [Actions Run 36289371645](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/runs/36289371645) |
+| **Corrida roja por umbral (número en el log: 67.81% < 70%)** | [Actions Run 36289012535](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/runs/36289012535) (Job: [build-frontend](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/runs/36289012535/job/108535307409)) |
+| **Secuencia rojo $\to$ tests $\to$ verde $\to$ merge (PR 1)** | [Pull Request #24](https://github.com/SantinoSchiavoni/ingsoft3-tp01/pull/24) |
+| **Freno vigente en rojo para defensa oral (PR 2)** | *Pendiente de creación (se deja abierto hasta la defensa)* |
+
 
 
