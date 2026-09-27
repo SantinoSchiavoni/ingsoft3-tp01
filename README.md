@@ -81,35 +81,65 @@ npm run dev
 
 ---
 
-## 🧬 Comandos de Construcción y Testing
+## 🧬 Testing y Cobertura de Código (Quality Gate)
 
-### Backend
+OrderFlow cuenta con suites de pruebas unitarias con estructura **AAA (Arrange, Act, Assert)**, tests parametrizados (`it.each`), casos de error y **mocks obligatorios** con verificación de interacción, respaldados por un **Quality Gate del 70%** de cobertura en líneas y ramas.
+
+### 1. Backend (NestJS + Jest)
+
 ```bash
 cd backend
 
-# Ejecutar linter y verificación de tipos
-npm run lint
+# Ejecutar tests unitarios
+npm test
 
-# Ejecutar tests unitarios de reglas de negocio y dominio
-npm run test
+# Ejecutar tests con modo detallado (ver los 18 tests)
+npm test -- --verbose
 
-# Compilar proyecto para producción
-npm run build
+# Ejecutar tests con cobertura y verificar el umbral del 70%
+npm run test:cov
+
+# Abrir el reporte visual HTML en tu navegador
+xdg-open coverage/lcov-report/index.html
 ```
 
-### Frontend
+> **Con Docker (desde la raíz del proyecto):**
+> ```bash
+> docker run --rm -v "$(pwd)/backend/coverage:/out" backend-test:ci
+> xdg-open backend/coverage/lcov-report/index.html
+> ```
+
+---
+
+### 2. Frontend (React + Vite + Vitest)
+
 ```bash
 cd frontend
 
-# Ejecutar linter
-npm run lint
+# Ejecutar tests unitarios
+npm test
 
-# Ejecutar tests unitarios de lógica UI
-npm run test
+# Ejecutar tests con cobertura y verificar el umbral del 70%
+npm run test:cov
 
-# Compilar artefacto para producción
-npm run build
+# Abrir el reporte visual HTML en tu navegador
+xdg-open coverage/index.html
 ```
+
+> **Con Docker (desde la raíz del proyecto):**
+> ```bash
+> docker run --rm -e COVERAGE_DIR=/salida/reporte \
+>   -v "$(pwd)/frontend/coverage:/salida" frontend-test:ci
+> xdg-open frontend/coverage/reporte/index.html
+> ```
+
+---
+
+### 3. Reportes en CI / GitHub Actions
+En cada ejecución del pipeline de GitHub Actions:
+- Se publica una tabla resumen con el porcentaje de líneas, ramas y funciones directamente en el **Job Summary** (`$GITHUB_STEP_SUMMARY`).
+- Se genera y almacena el reporte HTML interactivo completo como **artefacto descargable** (`coverage-backend` y `coverage-frontend`).
+- Si la cobertura cae por debajo del **70%**, el pipeline falla automáticamente con código de salida `1` y bloquea el Pull Request.
 
 ---
 
