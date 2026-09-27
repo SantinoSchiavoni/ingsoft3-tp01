@@ -128,8 +128,9 @@ xdg-open coverage/index.html
 
 > **Con Docker (desde la raíz del proyecto):**
 > ```bash
-> docker run --rm -v "$(pwd)/frontend/coverage:/out" frontend-test:ci
-> xdg-open frontend/coverage/index.html
+> docker run --rm -e COVERAGE_DIR=/salida/reporte \
+>   -v "$(pwd)/frontend/coverage:/salida" frontend-test:ci
+> xdg-open frontend/coverage/reporte/index.html
 > ```
 
 ---

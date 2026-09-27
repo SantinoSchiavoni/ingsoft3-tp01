@@ -10,7 +10,7 @@ RUN npm run build
 
 # ---- Etapa 2: tests unitarios y coverage ----
 FROM build AS test
-ENTRYPOINT ["npm", "run", "test:cov", "--", "--coverage.reportsDirectory=/out"]
+ENTRYPOINT ["npm", "run", "test:ci"]
 
 # ---- Etapa 3: nginx sirve los estáticos ----
 FROM nginx:alpine AS runner

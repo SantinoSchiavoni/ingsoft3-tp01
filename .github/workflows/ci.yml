@@ -103,12 +103,13 @@ jobs:
 
       - name: Correr los tests del frontend con coverage
         run: |
-          docker run --rm -v "${{ github.workspace }}/frontend-coverage:/out" frontend-test:ci
+          docker run --rm -e COVERAGE_DIR=/salida/reporte \
+            -v "${{ github.workspace }}/frontend-coverage:/salida" frontend-test:ci
 
       - name: Resumen del coverage del frontend
         if: ${{ !cancelled() }}
         run: |
-          F=frontend-coverage/coverage-summary.json
+          F=frontend-coverage/reporte/coverage-summary.json
           test -f "$F"
           node -e "
             const t = require('./$F').total;
