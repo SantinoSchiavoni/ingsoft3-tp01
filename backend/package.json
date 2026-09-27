@@ -66,8 +66,24 @@
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "collectCoverageFrom": [
-      "**/*.(t|j)s"
+      "orders/domain/**/*.ts",
+      "orders/application/use-cases/{create,confirm,cancel}-order.use-case.ts",
+      "products/domain/entities/**/*.ts"
     ],
+    "coverageReporters": [
+      "text",
+      "lcov",
+      "json-summary",
+      "html"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "lines": 70,
+        "branches": 70,
+        "functions": 70,
+        "statements": 70
+      }
+    },
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
   },

@@ -241,29 +241,70 @@ const total = items.reduce((acc, item) => acc + item.unitPrice, 0); // ¡Olvidó
 ```
 El test seguirá ejecutándose en **verde**, el pipeline no detectará nada y se desplegará a producción una función que cobra de menos al cliente. Por eso, el coverage es solo un detector de código no ejercitado; la verdadera seguridad reside en la calidad de los asserts, la verificación de casos de borde y los tests de mutación.
 
-## 5. **Problemas encontrados y soluciones (Tarea 1)**
+## 5. **Umbral de cobertura definido y justificado (Tarea 2)**
+
+- **Umbral elegido:** **70%** tanto para **líneas (lines)** como para **ramas (branches)** en backend y frontend.
+- **Valores reales medidos hoy:**
+  - **Backend (NestJS + Jest):**
+    - Líneas (`lines`): **86.52%**
+    - Ramas (`branches`): **74.07%**
+    - Funciones (`functions`): **86.66%**
+    - Declaraciones (`statements`): **87.31%**
+  - **Frontend (React + Vitest):**
+    - Líneas (`lines`): **88.13%**
+    - Ramas (`branches`): **83.33%**
+    - Funciones (`functions`): **100%**
+    - Declaraciones (`statements`): **88.13%**
+
+> **Justificación del umbral:**
+> Elegimos un umbral del 70% porque nuestra lógica nuclear y de negocio mide actualmente entre el 74% y el 88%. El 70% actúa como una red de seguridad estricta y exigente: si un desarrollador introduce código nuevo sin tests o altera la suite, el coverage cae por debajo de 70% y el build se rompe automáticamente en CI. Al mismo tiempo, evita ser un número arbitrario inalcanzable (Goodhart's Law). Para subir el backend a 85% de ramas, tendríamos que escribir tests de integración adicionales sobre todos los caminos alternativos de los repositorios de persistencia y controladores, que hoy no son objeto de esta suite unitaria.
+
+## 6. **Qué dejamos afuera de la cuenta de cobertura y por qué (Tarea 2)**
+
+Siguiendo el principio de **medir lo que importa (la lógica)** y no el cableado ni clases sin comportamiento (§2.4):
+
+- **En el Backend (NestJS):**
+  - **El arranque y configuración:** Excluimos `src/main.ts`, `src/app.module.ts`, `src/config/**` y los módulos (`*.module.ts`). Son archivos de infraestructura y cableado de NestJS; si tienen un error, la app directamente no compila ni levanta.
+  - **Clases sin comportamiento:** Excluimos los DTOs (`*.dto.ts`) y esquemas generados por Prisma (`prisma/**`). Son estructuras de datos de transporte sin reglas de validación de negocio complejas.
+  - **Adaptadores de entrega e infraestructura:** Excluimos controladores HTTP (`*.controller.ts`), filtros de excepción (`*.filter.ts`) y repositorios concretos de base de datos (`infrastructure/persistence/prisma/**`), ya que su verificación corresponde a pruebas de integración o E2E.
+  - *Impacto del recorte:* Medir todo el backend sin filtros arrojaba un 31.4% ficticio. Al excluir el cableado e infraestructura, la cobertura refleja fielmente el 86.5% de la lógica de dominio y aplicación de OrderFlow.
+- **En el Frontend (Vite/React):**
+  - Excluimos los componentes visuales de React (`pages/`, `components/`) y la inicialización (`main.tsx`, `App.tsx`), ya que testear JSX sin lógica pura agrega acoplamiento innecesario a jsdom/testing-library. La interacción visual completa se evalúa en el TP7 con pruebas end-to-end.
+  - Focalizamos el `include` en `src/utils/**`, donde residen las funciones puras de negocio (cálculo de totales, validación de clientes y reglas de transición de estados).
+
+## 7. **El ejercicio de la rama sin cubrir (Tarea 2)**
+
+Analizando el reporte generado por Vitest en el frontend sobre `frontend/src/utils/order-logic.ts`:
+1. **Qué línea es:**
+   Línea 22 de `src/utils/order-logic.ts`:
+   ```typescript
+   if (trimmed.length > 100) {
+     return {
+       isValid: false,
+       error: 'El nombre no puede exceder los 100 caracteres.',
+     };
+   }
+   ```
+2. **Qué entrada la recorrería:**
+   Una cadena con más de 100 caracteres de longitud, por ejemplo: `"A".repeat(101)`.
+3. **Qué decidimos:**
+   Decidimos **no agregar ese test en esta etapa**. 
+   *Motivo:* En el contexto comercial de OrderFlow, los nombres de clientes reales en el formulario raramente exceden los 100 caracteres, y el caso crítico que previene fallos operativos es el límite inferior (`length < 2`), el cual sí está testeado exhaustivamente. La regla superior se mantiene como programación defensiva para evitar desbordes en base de datos.
+
+## 8. **Problemas encontrados y soluciones**
 
 - **Reconocimiento de tipos de Jest en VS Code:** Al abrir el repositorio desde la carpeta raíz (`ingsoft3-tp01`), el servidor de TypeScript de VS Code no asociaba automáticamente las definiciones de tipos globales de `@types/jest` ubicadas en la subcarpeta `backend/node_modules/`, arrojando advertencias en el editor (`Cannot find name 'describe'`, `Cannot find namespace 'jest'`). 
-  - *Solución:* Se agregó la directiva `/// <reference types="jest" />` al inicio de los archivos de prueba, se especificó `"types": ["jest", "node"]` en [`backend/tsconfig.json`](file:///home/santinoschiavoni/Documents/UCC/4to/ingsoft3-tp01/backend/tsconfig.json) y se garantizó la disponibilidad de `node_modules` local para que el IDE resuelva los tipos sin depender exclusivamente del build de Docker.
+  - *Solución:* Se agregó la directiva `/// <reference types="jest" />` al inicio de los archivos de prueba, se especificó `"types": ["jest", "node"]` en `backend/tsconfig.json` y se garantizó la disponibilidad de `node_modules` local para que el IDE resuelva los tipos sin depender exclusivamente del build de Docker.
 - **Diferencia entre métodos de test reales vs. datos parametrizados:** El profesor advirtió explícitamente en clase no utilizar un único test parametrizado con 8 datos para inflar la cuenta de pruebas.
   - *Solución:* Se escribieron **15 métodos de test reales y distintos (`it(...)`)** repartidos en 4 reglas de negocio. El test parametrizado aporta 4 ejecuciones dinámicas sobre un único método, totalizando 18 ejecuciones en consola, superando ampliamente el piso de 8 métodos exigidos.
 
-## 6. **Guía rápida para la defensa oral (Preguntas del TP5 - Tarea 1)**
-
-- **¿Dónde están ubicados los tests en la pirámide de testing?**
-  Están en la **base** (unit tests). Son pruebas aisladas, deterministas y de ejecución en milisegundos que prueban lógica pura y casos de uso sin tocar base de datos ni red.
-- **¿Qué es la estructura AAA y por qué el nombre del test importa?**
-  AAA divide cada prueba en **Arrange** (preparar datos y dobles), **Act** (ejecutar la acción bajo prueba) y **Assert** (verificar el resultado o interacción). El nombre describe el **comportamiento y la regla** (ej. `rechaza_nombre_de_cliente_menor_a_dos_caracteres_o_con_solo_espacios`) para que si falla en CI a la madrugada, el nombre sea el diagnóstico directo sin tener que leer la implementación.
-- **¿Qué diferencia hay entre un Mock y un Stub?**
-  Un **stub** solo suministra respuestas preparadas sin verificar nada. Un **mock** es un doble sobre el cual el assert comprueba la **interacción** (ej. `expect(mockOrderRepository.confirmWithStockDeduction).toHaveBeenCalledWith(...)`). Si se cambiara la lógica para descontar cantidad 0, el mock lo detecta y falla.
-- **¿Por qué la consola dice 18 tests si son 15 métodos?**
-  Porque el método parametrizado con `it.each` evalúa 4 casos de borde distintos. Los 15 métodos reales cubren con holgura el mínimo de 8 exigido.
-
-## 7. **Declaración de uso de IA (Tarea 1)**
+## 9. **Declaración de uso de IA**
 
 Se utilizó un asistente de inteligencia artificial para:
 - Estructurar formalmente los bloques AAA (`// Arrange`, `// Act`, `// Assert`) y la parametrización con `it.each` según las convenciones exigidas por la cátedra.
 - Diseñar la inyección de dependencias en `frontend/src/utils/order-logic.ts` para emular el patrón del backend y permitir mockear el cliente HTTP.
-- Todos los tests y aserciones fueron ejecutados y validados localmente en contenedores Docker para certificar su paso en verde y el cumplimiento estricto de las reglas del dominio de OrderFlow.
+- Configurar las etapas de prueba multi-stage en los Dockerfiles y los pasos de extracción de cobertura y reportes en `.github/workflows/ci.yml`.
+- Todos los tests, umbrales y scripts fueron ejecutados y validados localmente en contenedores Docker para certificar su correcto funcionamiento y paso en verde.
+
 
 

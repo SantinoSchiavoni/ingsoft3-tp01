@@ -8,7 +8,11 @@ ARG VITE_API_URL
 ENV VITE_API_URL=${VITE_API_URL}
 RUN npm run build
 
-# ---- Etapa 2: nginx sirve los estáticos ----
+# ---- Etapa 2: tests unitarios y coverage ----
+FROM builder AS test
+ENTRYPOINT ["npm", "run", "test:ci"]
+
+# ---- Etapa 3: nginx sirve los estáticos ----
 FROM nginx:alpine AS runner
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf

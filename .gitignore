@@ -6,6 +6,9 @@ obj/
 dist/
 build/
 coverage/
+coverage-backend/
+frontend-coverage/
+TestResults/
 .next/
 *.log
 

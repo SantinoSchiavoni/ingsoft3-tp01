@@ -13,7 +13,11 @@ COPY . .
 RUN npm run prisma:generate
 RUN npm run build
 
-# ---- Etapa 2: ejecución de la aplicación ----
+# ---- Etapa 2: tests unitarios y coverage ----
+FROM builder AS test
+ENTRYPOINT ["npm", "run", "test:cov"]
+
+# ---- Etapa 3: ejecución de la aplicación ----
 FROM node:20-alpine AS runner
 WORKDIR /app
 RUN apk add --no-cache openssl libc6-compat
