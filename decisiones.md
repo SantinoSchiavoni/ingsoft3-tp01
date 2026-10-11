@@ -346,7 +346,7 @@ Se utilizó un asistente de inteligencia artificial para:
 | **Resumen de cobertura y reporte descargable (corrida verde)** | [Actions Run 36289371645](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/runs/36289371645) |
 | **Corrida roja por umbral (número en el log: 67.81% < 70%)** | [Actions Run 36289012535](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/runs/36289012535) (Job: [build-frontend](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/runs/36289012535/job/108535307409)) |
 | **Secuencia rojo $\to$ tests $\to$ verde $\to$ merge (PR 1)** | [Pull Request #24](https://github.com/SantinoSchiavoni/ingsoft3-tp01/pull/24) |
-| **Freno vigente en rojo para defensa oral (PR 2)** | *Pendiente de creación (se deja abierto hasta la defensa)* |
+| **Freno vigente en rojo para defensa oral (PR 2)** | [Pull Request #25](https://github.com/SantinoSchiavoni/ingsoft3-tp01/pull/25) |
 
 ---
 
@@ -476,133 +476,136 @@ A diferencia de la app de cátedra en .NET que utiliza `EnsureCreated()`, en Ord
 
 ## 4. El gate humano y los criterios de aprobación (Tarea 4)
 
+### 4.1 ¿Por qué frenar la máquina antes de Producción? (Continuous Delivery vs Deployment)
+Frenar el flujo automático justo antes de Producción introduce un control de negocio que la automatización pura no puede reemplazar:
+- **Timing y oportunidad de negocio:** Permite sincronizar el despliegue con momentos de bajo impacto para los usuarios (fuera de horarios pico), coordinar anuncios con el equipo de producto o soporte y asegurar disponibilidad del equipo ante incidentes.
+- **Contexto humano y verificación de QA:** El aprobador no aprueba a ciegas ni por inercia; analiza la evidencia del entorno de QA (si el smoke test pasó sin demoras, si la interfaz visual es consistente y si los logs muestran anomalías).
+- **Responsabilidad explícita y trazabilidad:** En GitHub Actions queda registrado de forma indeleble quién aprobó el despliegue, en qué fecha/hora y qué notas acompañaron la decisión. «¿Quién autorizó esto?» tiene respuesta verificable en la corrida.
+- **Alcance de los secretos de producción:** Los Deploy Hooks (`RENDER_HOOK_API_PROD` y `RENDER_HOOK_FRONT_PROD`) residen **exclusivamente dentro del environment `production`**. Ningún job sin aprobación humana previa puede acceder a estas credenciales, protegiendo los entornos productivos de accesos no autorizados.
+
+### 4.2 Criterios formales del aprobador (qué se mira antes de aprobar)
+Aprobar por mero trámite debilita el gate. El revisor debe validar cuatro condiciones estrictas antes de pulsar *Approve and deploy*:
+1. **Verificación técnica completa en verde:** El pipeline de CI (`build-backend` y `build-frontend`) y el despliegue automático `deploy-qa` deben haber finalizado con éxito.
+2. **Smoke test de QA superado sin anomalías:** El smoke test de QA no debe haber requerido un número inusual de reintentos (síntoma de degradación en base de datos o cold start crítico).
+3. **Inspección del cambio:** Revisar el Pull Request para constatar que no existan migraciones destructivas de base de datos ni rotura de contratos de API no contemplados.
+4. **Ventana operativa adecuada:** Que no existan despliegues concurrentes pendientes de resolución o que no sea un horario crítico de atención comercial.
+
+### 4.3 Evidencia de aprobación y rechazo documentado
+Un gate que nunca rechaza no es una compuerta: es un decorado. Por ende, el flujo contempla y documenta ambos caminos:
+- **Flujo de rechazo con motivo específico (Evidencia obligatoria):**
+  - *Corrida rechazada:* *(Se adjuntará el enlace tras ejecutar la prueba)*
+  - *Motivo documentado:* Se rechazó la corrida debido a una condición operativa puntual (por ejemplo: revisión pendiente en el esquema de base de datos / ventana de mantenimiento cerrada / validación manual requerida en QA).
+- **Flujo de aprobación exitosa:**
+  - *Corrida aprobada:* *(Se adjuntará el enlace tras aprobar el segundo PR)*
+- **Control de concurrencia:**
+  - El job `deploy-prod` define:
+    ```yaml
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    ```
+  - Esto evita que dos despliegues a producción se pisen entre sí en Render. Sin embargo, no reordena aprobaciones pendientes, por lo que la regla de equipo es rechazar manualmente cualquier corrida vieja antes de autorizar una nueva.
 
 ---
 
 ## 5. Letra chica del Free Tier y limitaciones del pipeline
 
+### 5.1 Restricciones de Render y Neon
+El diseño de pipelines y entornos en la nube exige comprender el contrato del proveedor:
+- **Render Web Services (Free Tier):**
+  - Otorga **750 horas de cómputo por mes para todo el workspace** (consumidas entre los cuatro servicios: 2 en QA y 2 en PROD).
+  - Tras 15 minutos sin tráfico, el servicio entra en **estado dormido (sleep)**. La primera petición entrante sufre un **cold start** de hasta 50-60 segundos.
+  - Ofrece **500 minutos de build al mes por workspace**. Cada deploy reconstruye los contenedores en Render, consumiendo minutos de cómputo del cupo.
+- **Neon Serverless PostgreSQL:**
+  - Tier gratuito permanente sin vencimiento de 30 días (a diferencia de Render Postgres).
+  - Suspende el cómputo tras 5 minutos de inactividad, reactivándose automáticamente en 1-2 segundos al recibir tráfico SQL. Límite de 0.5 GB de almacenamiento.
+
+### 5.2 Manejo de la latencia en el pipeline
+- Para evitar falsos negativos en CI/CD por culpa de los cold starts, los smoke tests de QA y PROD no ejecutan un simple `curl` aislado.
+- Implementan un ciclo de **hasta 30 reintentos con esperas de 20 segundos** y un límite de conexión `--max-time 10`, otorgando hasta 10 minutos de ventana para que Render complete el build y despierte la aplicación.
+
+### 5.3 Limitaciones del pipeline actual (y qué resuelve el TP7)
+1. **Reconstrucción desde el repositorio en vez de ejecutar la imagen del registry:**
+   - En este TP, el deploy hook de Render (`&ref=$GITHUB_SHA`) le solicita a Render que **vuelva a construir** la aplicación desde el repositorio en ese commit.
+   - Aunque se despliega el commit verificado, **no se ejecuta físicamente la misma imagen que pasó los tests en GitHub Actions**. Si una dependencia externa no fijada varió entre ambos momentos, la imagen de producción podría diferir. Esta limitación se resuelve en el TP7 al hacer que el proveedor despliegue directamente la imagen publicada en GHCR.
+
+### 5.4 Qué prueba nuestro smoke test y qué NO prueba (limitación honesta)
+Todo pipeline profesional debe reconocer con honestidad sus propios límites:
+
+* **Qué SÍ prueba:**
+  - **Proceso vivo:** Que el servidor Node/NestJS levantó y responde (`/health`).
+  - **Base de datos conectada:** Que la base de Neon responde consultas reales (`/api/products`). Si la cadena de conexión tuviera credenciales inválidas o la base estuviera caída, el smoke fallaría.
+  - **Servidor web del front:** Que Nginx sirve correctamente el bundle estático en la raíz (`/`).
+  - **Tolerancia a cold start:** Tolera los tiempos muertos del plan gratuito mediante el bucle de 30 reintentos.
+
+* **Qué NO prueba (la limitación):**
+  - **No garantiza qué versión específica está atendiendo los pedidos.**
+  - Al disparar el deploy hook, Render contesta `200 OK` en menos de un segundo y arranca a compilar en segundo plano (tardando entre 2 y 5 minutos). Durante todo ese tiempo, **Render sigue sirviendo la versión anterior**.
+  - Si el servicio no estaba dormido, el smoke test puede dar **verde a los 30 segundos contra la versión VIEJA**, creyendo que el deploy terminó cuando en realidad Render sigue compilando. Y si ese build de Render llegara a fallar, el pipeline marcaría éxito cuando el entorno nunca se actualizó.
+
+* **La solución técnica ideal (mitigación profesional):**
+  - Para que el smoke test sea infalible, el backend debería recibir el `$GITHUB_SHA` como variable de entorno durante su construcción y exponerlo en el endpoint:
+    ```json
+    { "status": "ok", "commit": "a1b2c3d..." }
+    ```
+  - Luego, el script del smoke test debería comparar ese valor con `$GITHUB_SHA`, fallando y reintentando hasta que el commit que conteste sea estrictamente el recién desplegado. (Otra opción equivalente es consultar la API de Render para esperar el estado `live` del ID de deploy).
+  - Reconocer esta brecha entre "el servicio responde 200" y "el servicio está corriendo mi commit" es precisamente lo que separa un pipeline decorativo de uno con criterio de ingeniería.
+
 ---
 
 ## 6. Estrategia de deployment en producción real y plan de rollback (Tarea 6)
 
+### 6.1 Estrategia de Deployment recomendada para OrderFlow: Blue-Green Deployment
+Al analizar las distintas estrategias de despliegue para una aplicación productiva de gestión de pedidos:
+- **Recreate:** Requiere apagar la versión vieja antes de encender la nueva, generando downtime inadmisible para clientes procesando compras.
+- **Rolling:** Reemplaza instancias gradualmente. Sin embargo, en OrderFlow convivirían simultáneamente dos versiones distintas del backend atendiendo peticiones, lo cual es de alto riesgo cuando una versión introduce cambios transaccionales en la tabla `orders` o en el cálculo de stock.
+- **Canary:** Desvía un porcentaje mínimo de tráfico a la versión nueva. Requiere observabilidad avanzada y monitoreo de tasa de errores en tiempo real (métricas APM que hoy no están integradas en el pipeline).
+- **Elección: Blue-Green Deployment:**
+  - Se mantienen dos entornos de producción idénticos (Blue activo, Green pasivo).
+  - El deploy se realiza sobre Green sin afectar a los usuarios. Se ejecutan smoke tests completos contra la base productiva.
+  - El router / balanceador conmuta el 100% del tráfico instantáneamente de Blue a Green.
+  - **Ventaja de Rollback:** En caso de falla catastrófica post-lanzamiento, el rollback consiste simplemente en re-conmutar el router a Blue en segundos, minimizando el Mean Time to Recovery (MTTR - métrica DORA).
 
----
+### 6.2 Plan de Rollback actual (Paso a paso)
+Si un despliegue aprobado en Render introduce un fallo crítico no detectado, el procedimiento formal de rollback es:
 
-## 7. Problemas encontrados y soluciones
-
-
----
-
-## 8. Declaración de uso de IA
-
-
-
-
----
-
-## 1. El artefacto: qué entrega el pipeline y por qué el registry es confiable (Tarea 1)
-
-### 1.1 ¿Por qué el artefacto nace sólo de un build verde?
-Hasta el TP5, el pipeline era meramente de **verificación**: construía, ejecutaba tests, evaluaba el umbral de cobertura y finalizaba. Al apagarse el runner, la imagen construida se destruía. 
-
-Un pipeline que no produce un artefacto desplegable es sólo compilación y testeo, no integración continua real. Para que el proceso de despliegue sea confiable, debe existir una unidad concreta e inmutable que pueda ser transportada a los entornos sin necesidad de reconstruirla.
-
-El artefacto **nace de un build verde o no nace**:
-- Si publicáramos imágenes ante tests fallidos, el registry se convertiría en un depósito arbitrario de binarios rotos y la etiqueta de publicación perdería su significado de garantía de calidad.
-- Al condicionar la publicación a la verificación exitosa, estar publicado en `ghcr.io` garantiza contractualmente: *«este código pasó la suite completa de pruebas y el umbral de cobertura sin errores»*.
-
-### 1.2 La cadena de tres eslabones que garantiza la confiabilidad
-Para asegurar que ninguna imagen rota llegue al registry sin necesidad de pruebas manuales o configuraciones complejas, se implementó una cadena de tres eslabones autoportante:
-
-1. **Primer eslabón — Nada entra a `main` sin el pipeline en verde:**
-   - La rama `main` está protegida mediante el branch protection rule del TP4 y el Quality Gate del TP5 (umbral de 70% de coverage). No es posible realizar un merge si la suite de tests falla.
-2. **Segundo eslabón — Sólo lo que entra a `main` se publica:**
-   - En el step `Entrar al registry` se condiciona con `if: github.event_name == 'push'`.
-   - En el step `Construir y publicar la imagen` se utiliza:
-     ```yaml
-     push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+1. **Identificar el último commit estable:**
+   - Consultar la última release estable o el commit del deploy previo en *Deployments → production* de GitHub (ej: `SHA_ANTERIOR=$(git rev-list -n1 v5.0.0)` o el commit previo al fallo).
+2. **Disparar los Deploy Hooks apuntando al SHA anterior:**
+   - Desde la terminal o un script seguro, invocar los hooks de producción especificando el commit anterior:
+     ```bash
+     curl -fsS "$HOOK_API_PROD&ref=$SHA_ANTERIOR"
+     curl -fsS "$HOOK_FRONT_PROD&ref=$SHA_ANTERIOR"
      ```
-   - En los Pull Requests el código se construye y verifica, pero el push está desactivado.
-   - **Evidencia:** [Actions Run 37405656099](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/runs/37405656099), donde se observa el step de autenticación al registry salteado a pesar de tener los tests aprobados.
-3. **Tercer eslabón — El paso que publica es el ÚLTIMO del job:**
-   - En GitHub Actions, los pasos de un job se ejecutan secuencialmente y abortan inmediatamente ante el primer error (código de salida $\ne 0$).
-   - Al ubicar la construcción y publicación final debajo de los tests y sin condicionales de tipo `always()` o `!cancelled()`, si los tests fallan, el step de publicación **nunca llega a ejecutarse**.
-   - **Evidencia:** [Actions Run 37405896826](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/runs/37405896826), donde se comprueba el orden exacto de ejecución en `main`.
+3. **Monitoreo en Render:**
+   - Abrir el panel de Render en los servicios de Producción y monitorear la pestaña *Deploys* hasta que el commit anterior figure con estado **Live**.
+4. **Verificación de sanidad:**
+   - Ejecutar el smoke test contra la API y el Frontend de Producción para constatar la recuperación del servicio.
 
-> **Garantía del pipeline vs. alcance físico:**
-> Esta cadena garantiza que **el pipeline** nunca publicará por accidente una imagen no verificada. No impide que alguien con permisos haga un `docker push` manual desde su máquina local, pero formaliza el proceso automatizado del repositorio.
-
-### 1.3 Identificación y nombrado de la imagen
-Las imágenes se publican bajo el esquema:
-`ghcr.io/santinoschiavoni/ingsoft3-tp01-<servicio>:sha-<commit>`
-
-- **Trazabilidad por commit (`:sha-${{ github.sha }}`):** Permite vincular de forma biunívoca la imagen en ejecución con el código exacto y el run de CI que la originó. Responde con certeza técnica a la pregunta: *«¿lo que está corriendo en producción es lo que se verificó en este commit?»*.
-- **Restricción de minúsculas en GHCR:** El nombre del repositorio (`SantinoSchiavoni/ingsoft3-tp01`) contiene mayúsculas. Dado que la especificación de Docker y GitHub Packages rechaza mayúsculas con el error `repository name must be lowercase`, se explicitó el namespace en minúsculas (`santinoschiavoni`), evitando fallos en la publicación.
-
----
-
-## 2. Continuous Delivery vs. Continuous Deployment
-
-### 2.1 Comparación conceptual
-- **Continuous Integration (CI):** El código se integra frecuentemente y se verifica automáticamente (build + tests + análisis estático). Finaliza con la generación de un artefacto validado en el registry.
-- **Continuous Delivery (CD):** Todo cambio verificado queda en estado **listo para desplegarse**, llegando de forma automática a entornos intermedios (QA/Staging), pero el paso final a Producción requiere una **autorización o decisión humana explícita**. El despliegue es una decisión de negocio.
-- **Continuous Deployment:** Todo cambio que aprueba los tests pasa directamente a Producción sin intervención humana. Requiere un nivel muy alto de madurez en tests (unitarios, integración, E2E, performance) y observabilidad automática con capacidad de autorecuperación.
-
-### 2.2 Elección para OrderFlow: Continuous Delivery
-Para el contexto de OrderFlow adoptamos **Continuous Delivery**:
-1. QA se despliega de forma automática e inmediata ante cada merge en `main`.
-2. Producción queda retenida tras un **Gate Humano (Environment protection rule con required reviewers)**.
-3. *Justificación:* Al tratarse de un sistema transaccional de stock y facturación de pedidos, poner cambios en producción sin control de horario o revisión de negocio podría interrumpir operaciones activas. El gate humano permite coordinar ventanas de mantenimiento y verificar la estabilidad en QA antes de impactar a los usuarios finales.
-
-### 2.3 Desacoplamiento entre Deploy y Release
-- **Deploy (Desplegar):** Es la acción técnica de instalar y ejecutar nuevos binarios o contenedores en los servidores.
-- **Release (Publicar / Liberar):** Es el acto de negocio mediante el cual se expone una nueva funcionalidad a los usuarios.
-- Con técnicas como **Feature Flags** es posible desplegar código en producción manteniéndolo inactivo, desacoplando el riesgo técnico de la infraestructura del riesgo del lanzamiento comercial.
-
----
-
-## 3. Arquitectura de despliegue y separación de entornos (Tareas 2 y 3)
-
-### 3.1 Base de datos aislada por entorno (Neon)
-Para cumplir con el principio de que QA y Producción sean entornos formalmente separados y representativos de la realidad:
-- Se crearon dos bases de datos independientes sobre el mismo proyecto serverless de Neon: **`app_qa`** y **`app_prod`**.
-- Cada entorno posee su propia Connection String (`DATABASE_URL`), garantizando que las pruebas en QA nunca contaminen los datos de producción.
-
-### 3.2 Elección de infraestructura de datos: ¿Por qué Neon y no Render Postgres?
-Elegir infraestructura también implica leer la letra chica de los contratos y tiers gratuitos:
-- **Postgres de Render:** Su plan gratuito tiene una vigencia máxima de **30 días** desde su creación (más 14 días de gracia antes de su eliminación total). Esto es insuficiente para la duración del semestre y provocaría la caída de la base de datos antes de la defensa final de P2.
-- **Neon:** Ofrece un tier gratuito **permanente** para PostgreSQL serverless (con límites razonables de 0.5 GB de almacenamiento y suspensión de cómputo a los 5 minutos de inactividad que se reanuda de forma transparente ante la primera consulta).
-- *Decisión:* Se desacopla la capa de persistencia de Render y se delega en Neon, asegurando que los entornos sigan vivos y operativos sin requerir tarjeta de crédito ni recreaciones mensuales forzadas.
-
-### 3.3 Creación y migración de esquemas en NestJS + Prisma
-A diferencia de la app de cátedra en .NET que utiliza `EnsureCreated()`, en OrderFlow:
-- El contenedor backend ejecuta en su `docker-entrypoint.sh`:
-  ```sh
-  npx prisma migrate deploy
-  ```
-- Al iniciar el servicio por primera vez en Render, Prisma ejecuta automáticamente las migraciones pendientes sobre la base correspondiente (`app_qa` o `app_prod`), creando las tablas `products`, `orders` y `order_items` e inicializando el seed si la base está vacía.
-
----
-
-## 4. El gate humano y los criterios de aprobación (Tarea 4)
-*(Se documentarán los criterios del reviewer, el flujo de aprobación y la evidencia del rechazo)*
-
----
-
-## 5. Letra chica del Free Tier y limitaciones del pipeline
-*(Se documentará el comportamiento de Render y Neon, cold starts, minutos de build y límites del smoke test)*
-
----
-
-## 6. Estrategia de deployment en producción real y plan de rollback (Tarea 6)
-*(Se completará con el análisis de patrones como Canary/Blue-Green y la medición real del tiempo de rollback en Render)*
+> **Lo que el rollback de código NO deshace:**
+> El rollback revierte los contenedores y el código de la aplicación, pero **no revierte modificaciones destructivas en los datos de la base de datos**. Si una migración eliminó una columna o alteró datos persistidos, el rollback de infraestructura debe complementarse con un restore de snapshot o migración inversa de datos en Neon.
 
 ---
 
 ## 7. Problemas encontrados y soluciones
-*(Se irán registrando las dificultades encontradas durante el desarrollo de las tareas)*
+
+1. **Mayúsculas en el namespace de GHCR:**
+   - *Problema:* El repositorio `SantinoSchiavoni/ingsoft3-tp01` contiene letras mayúsculas. Docker y `ghcr.io` rechazan nombres con mayúsculas arrojando `repository name must be lowercase`.
+   - *Solución:* Se forzó el namespace en minúsculas en el workflow (`santinoschiavoni`) en lugar de usar `${{ github.repository }}`.
+2. **Desacoplamiento de la API en el contenedor de Frontend:**
+   - *Problema:* El frontend en local usaba proxy a `http://backend:3000`. En Render, cada entorno tiene un subdominio HTTPS independiente.
+   - *Solución:* Se adoptó la plantilla `frontend/default.conf.template` en `/etc/nginx/templates/` resolviendo dinámicamente `${BACKEND_URL}` y activando `proxy_ssl_server_name on;` para soportar SNI TLS.
+3. **Manejo de migraciones en Neon sin tarjetas ni intervenciones manuales:**
+   - *Problema:* Las bases de Neon nacen vacías y Render Postgres expira a los 30 días.
+   - *Solución:* Se utilizó Neon con dos bases (`app_qa` y `app_prod`) y se garantizó la ejecución automática de `npx prisma migrate deploy` en el arranque del contenedor de backend mediante `docker-entrypoint.sh`.
 
 ---
 
 ## 8. Declaración de uso de IA
-*(Se detallará la asistencia de IA y su verificación técnica)*
+
+Se utilizó asistencia de IA como pair programmer para:
+- Adaptar la plantilla de configuración de Nginx y el script de smoke test a los endpoints específicos de OrderFlow (`/api/products`).
+- Configurar las etapas del pipeline en `.github/workflows/ci.yml` asegurando la sintaxis de GitHub Environments y la inyección de `&ref=$GITHUB_SHA`.
+- Estructurar y documentar las decisiones técnicas y de arquitectura en `decisiones.md`.
+- Toda la configuración técnica, secrets, bases de datos y despliegues fueron configurados, validados y comprobados en vivo en las consolas de GitHub, Render y Neon.
+
