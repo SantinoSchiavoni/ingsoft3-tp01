@@ -6,6 +6,7 @@
 4. [TP4 — CI: Pipelines as Code](#tp4--ci-pipelines-as-code)
 5. [TP5 — Calidad automatizada: tests, coverage y el umbral que frena un merge](#tp5--calidad-automatizada-tests-coverage-y-el-umbral-que-frena-un-merge)
 6. [TP6 — CD: environments, aprobaciones y deployment patterns](#tp6--cd-environments-aprobaciones-y-deployment-patterns)
+7. [TP7 — Contenedores en el pipeline + integración y e2e](#tp7--contenedores-en-el-pipeline--integración-y-e2e)
 
 ---
 
@@ -686,4 +687,234 @@ Se utilizó asistencia de IA como pair programmer para:
 - Configurar las etapas del pipeline en `.github/workflows/ci.yml` asegurando la sintaxis de GitHub Environments y la inyección de `&ref=$GITHUB_SHA`.
 - Estructurar y documentar las decisiones técnicas y de arquitectura en `decisiones.md`.
 - Toda la configuración técnica, secrets, bases de datos y despliegues fueron configurados, validados y comprobados en vivo en las consolas de GitHub, Render y Neon.
+
+---
+
+# TP7 — Contenedores en el pipeline + integración y e2e
+
+## Enlaces de este TP
+
+> **Nota:** Conforme al entregable de la cátedra, esta sección reúne todos los accesos externos, paquetes inmutables y evidencias de ejecución requeridas para la corrección y defensa de P2.
+
+| Recurso / Evidencia | Enlace / Identificador | Descripción |
+|---|---|---|
+| **Paquete Backend (GHCR)** | [ghcr.io/santinoschiavoni/ingsoft3-tp01-backend](https://github.com/SantinoSchiavoni/ingsoft3-tp01/pkgs/container/ingsoft3-tp01-backend) | Imagen pública inmutable de backend en GitHub Container Registry, etiquetada por commit (`:sha-<commit>`). Descargable sin credenciales. |
+| **Paquete Frontend (GHCR)** | [ghcr.io/santinoschiavoni/ingsoft3-tp01-frontend](https://github.com/SantinoSchiavoni/ingsoft3-tp01/pkgs/container/ingsoft3-tp01-frontend) | Imagen pública inmutable de frontend en GitHub Container Registry, etiquetada por commit (`:sha-<commit>`). Descargable sin credenciales. |
+| **Commit que rompió el front** | *(Pendiente de corrida §3.4)* | Commit que introduce la rotura deliberada en el frontend para provocar el freno de promoción. |
+| **Corrida: Integración VERDE + E2E ROJA** | *(Pendiente de corrida §3.4)* | Corrida de GitHub Actions donde el smoke y la integración pasan en verde, pero la suite E2E falla frenando la promoción a PROD. |
+| **Artefacto Reporte Integración (Verde)** | `playwright-report-integracion` | Reporte HTML generado por Playwright para `e2e/api.spec.js` en la corrida roja de prueba. |
+| **Artefacto Reporte E2E (Rojo con traza)** | `playwright-report-e2e` | Reporte HTML con screenshot y traza (`trace.zip`) de la falla capturada en `e2e/pedidos.spec.js`. |
+| **Corrida completa en VERDE** | *(Pendiente de corrida §3.4)* | Corrida posterior al fix con toda la cadena aprobada y desplegada hasta Producción. |
+| **QA - Frontend URL** | [https://orderflow-front-qa.onrender.com](https://orderflow-front-qa.onrender.com) | URL pública del entorno QA ejecutando la imagen inmutable de GHCR. |
+| **QA - Backend / Health URL** | [https://orderflow-api-qa.onrender.com/health](https://orderflow-api-qa.onrender.com/health) | Endpoint `/health` y `/api/products` de QA conectado a la base `app_qa` de Neon. |
+| **PROD - Frontend URL** | [https://orderflow-front-prod.onrender.com](https://orderflow-front-prod.onrender.com) | URL pública del entorno de Producción ejecutando la misma imagen verificada en QA. |
+| **PROD - Backend / Health URL** | [https://orderflow-api-prod.onrender.com/health](https://orderflow-api-prod.onrender.com/health) | Endpoint de Producción conectado a la base `app_prod` de Neon. |
+| **Release v7.0.0** | *(Pendiente de creación en §3.5)* | Tag y Release oficial de GitHub sobre el commit exacto desplegado en Producción. |
+
+---
+
+## 1. Build once, deploy many: la imagen como unidad de release
+
+### 1.1 El problema del TP6 que resuelve este práctico
+En el TP6, la cadena de despliegue promovía **commits** de Git: cada entorno (QA y PROD) recibía la señal del webhook y procedía a clonar el repositorio y **reconstruir la aplicación desde cero**.
+
+Esto rompía el principio fundamental de reproducibilidad:
+- **No-determinismo temporal:** El build de QA ocurría a una hora y el de PROD ocurría minutos u horas más tarde (tras la aprobación manual). Durante esa ventana, la resolución de dependencias remotas (parches menores en `npm`, imágenes base actualizadas en Docker Hub) podía generar binarios sutilmente diferentes.
+- **Falsa equivalencia:** Lo que llegaba a producción no era bit a bit lo que se había verificado en QA, sino una segunda compilación independiente.
+
+### 1.2 La solución en OrderFlow
+Con el TP7, la unidad de release pasa a ser la **imagen de contenedor inmutable**:
+1. El pipeline de CI construye las imágenes de backend y frontend **una única vez** en el runner de GitHub Actions.
+2. Ambas imágenes son empaquetadas con su runtime, dependencias exactas y código compilado, y se publican en `ghcr.io` bajo la etiqueta `sha-<commit>`.
+3. Render pasa a operar en modo *Existing Image*: el proveedor no compila nada; únicamente descarga y ejecuta la imagen indicada.
+4. **Promoción real:** Desplegar en QA y luego en PROD consiste en pasarle a cada entorno exactamente el mismo identificador de imagen (`imgURL`). Si un comportamiento fue validado en QA, se garantiza matemáticamente que en PROD correrá idéntico.
+
+---
+
+## 2. Estrategia de etiquetas e inmutabilidad
+
+### 2.1 `sha-<commit>` vs `latest`
+- **Por qué usamos `sha-<commit>`:** Cada corrida de CI etiqueta las imágenes con el hash completo de 40 caracteres del commit verificado en `main` (`sha-${{ github.sha }}`). Esto establece una trazabilidad criptográfica directa: mirando la imagen que corre en cualquier entorno se sabe de qué commit exacto provino.
+- **Por qué el pipeline NO publica `latest`:** `latest` es un puntero mutable. Si múltiples corridas o merges se ejecutan, `latest` se sobrescribe constantemente. Desplegar `latest` en producción implicaría que nadie puede auditar qué versión exacta está corriendo ni hacer un rollback certero.
+
+### 2.2 Configuración inicial en Render vs imagen que corre
+Para convertir los servicios a *Existing Image*, Render exige ingresar una URL de imagen válida como punto de partida. Se utilizó la imagen del primer merge verificado (`sha-c43e1302...`). 
+
+Sin embargo, **no es esa imagen la que corre de forma permanente**:
+- Cada ejecución del workflow invoca el deploy hook agregando el parámetro `--data-urlencode "imgURL=..."`.
+- Render actualiza el contenedor activo a la imagen provista en el hook sin modificar la configuración estática de *Settings*.
+- *Alerta de Manual Deploy:* Si un operador hace clic en *Manual Deploy* desde la interfaz de Render, el servicio volvería erróneamente a la imagen original configurada en *Settings*. Por esta razón, todos los despliegues son estrictamente orquestados por el pipeline.
+
+### 2.3 Preservación de servicios existentes
+En lugar de crear 4 servicios nuevos en Render, se editó la fuente (*Source → Existing Image*) de los 4 servicios existentes (api-qa, front-qa, api-prod, front-prod). Esto evitó:
+- Cambiar las URLs públicas y desconfigurar DNS.
+- Regenerar secrets y deploy hooks en GitHub.
+- Duplicar el consumo de horas del plan gratuito (que comparte 750 horas mensuales por workspace).
+
+---
+
+## 3. Trazabilidad: De la Release a la Imagen en un solo paso
+
+En caso de incidente en producción, el catálogo de releases permite identificar la imagen exacta a restaurar de forma inmediata:
+
+1. El tag de git `v7.0.0` apunta al commit específico que está corriendo en producción (obtenido desde GitHub Deployments):
+   ```bash
+   git rev-list -n1 v7.0.0
+   # Devuelve: <SHA-40-CARACTERES>
+   ```
+2. La imagen asociada en el registry lleva idéntica etiqueta:
+   - Backend: `ghcr.io/santinoschiavoni/ingsoft3-tp01-backend:sha-<SHA>`
+   - Frontend: `ghcr.io/santinoschiavoni/ingsoft3-tp01-frontend:sha-<SHA>`
+3. Restaurar dicha versión consiste únicamente en invocar el deploy hook pasándole ese `imgURL`, sin necesidad de reconstruir código fuente.
+
+---
+
+## 4. Verificación externa y límites del Smoke Test
+
+### 4.1 Comprobación externa de imagen ejecutada
+Para constatar que el entorno ejecuta la imagen inmutable y no un build desde el repositorio:
+- En la pestaña *Events* de cada servicio de Render se lee:
+  `Deploy live for ghcr.io/santinoschiavoni/ingsoft3-tp01-...:sha-<commit>`
+  acompañado de la leyenda **«Triggered via Deploy Hook»**.
+- Los paquetes en GHCR son públicos y pueden descargarse con `docker pull` sin credenciales desde cualquier máquina.
+
+### 4.2 Lo que el Smoke Test NO puede verificar
+El smoke test implementado en el pipeline ejecuta consultas `curl` contra `/health`, `/api/products` y `/`.
+- **Qué prueba:** Que el servidor web y la base de datos responden peticiones HTTP con códigos 2xx.
+- **Qué NO prueba:**
+  1. Si Render falló al descargar la nueva imagen y continuó sirviendo silenciosamente la versión anterior, el smoke test da verde igual.
+  2. No prueba la interacción de un usuario real en el navegador.
+  3. No detecta desfasajes de integración entre el frontend y la API (ej: un botón que envía un payload con campos renombrados o un proxy mal enrutado).
+
+---
+
+## 5. Diseño de las suites de prueba: La Pirámide de Testing
+
+En consonancia con la pirámide de automatización, cada nivel de prueba tiene una responsabilidad y costo delimitados:
+
+| Nivel | Herramienta | Entorno | Qué prueba | Qué NO prueba | Tiempo |
+|---|---|---|---|---|---|
+| **Unitarios (TP5)** | Jest / Vitest | Runner (memoria) | Reglas de negocio aisladas con dobles | Comportamiento del driver real y persistencia | Milisegundos |
+| **Integración (TP7)** | Playwright (`request`) | QA desplegado | Contrato HTTP de la API contra PostgreSQL real en Neon | Interacción de usuario y renderizado de UI | Segundos (~3 s) |
+| **End-to-End (TP7)** | Playwright (Chromium) | QA desplegado | Flujos de usuario completos de punta a punta | Casos de borde exhaustivos de lógica interna | Minutos (~40 s) |
+
+### 5.1 Suite de Integración (`frontend/e2e/api.spec.js`)
+Prueba directamente la API desplegada de QA contra su base de datos PostgreSQL real, sin abrir navegadores ni usar dobles de prueba:
+1. **Alta + Verificación + Borrado:** Crea un pedido con cliente único (`api ${Date.now()}`), verifica que el `GET /api/orders` lo retorna desde PostgreSQL, ejecuta `DELETE /api/orders/:id` y comprueba que la consulta posterior ya no lo contiene.
+2. **Alta inválida:** Envía un payload con nombre de cliente vacío; la API responde `400` y se comprueba que la base de datos no incrementó su cantidad de registros.
+3. **Transición de estado y ciclo de vida (Tercera prueba a elección):** Crea un pedido en estado `PENDING`, ejecuta `POST /api/orders/:id/confirm` y verifica en la base de verdad que el estado transitó a `CONFIRMED`.
+   - *¿Por qué esta prueba?:* La confirmación de pedidos es el evento de dominio neurálgico en OrderFlow donde se descuenta stock transaccionalmente y se congelan los precios. 
+   - *¿Quién te escribe si se rompe?:* El **jefe de depósito / logística**, porque los pedidos quedan trabados en `PENDING`, impidiendo descontar mercadería y despachar entregas.
+
+### 5.2 Suite End-to-End (`frontend/e2e/pedidos.spec.js`)
+Ejercita la aplicación completa mediante un navegador Chromium real contra la URL pública de QA:
+1. **Creación y borrado completo:** Navega a `/orders/new`, completa el formulario con cliente único (`e2e ${Date.now()}`), agrega un producto, envía el formulario, comprueba que el pedido figura en la tabla de `/orders` y lo elimina mediante el botón accesible `Borrar <cliente>`, comprobando su desaparición.
+2. **Validación de error en formulario:** Ingresa un nombre con un único caracter (`'a'`), comprueba que el elemento con `role="alert"` se torna visible y que el botón `Crear Pedido` permanece bloqueado (`disabled`).
+3. **Búsqueda de cliente en tiempo real (Tercera prueba a elección — El flujo de todos los días):** Crea un pedido real, ingresa al listado `/orders`, utiliza el campo accesible `Buscar Cliente` para filtrar por ese nombre (disparando una consulta HTTP real con filtro en PostgreSQL), verifica que el pedido aparece de inmediato en la tabla, y luego borra el registro comprobando su eliminación.
+   - *¿Por qué esta prueba?:* Es el flujo de mostrador que los vendedores y cajeros realizan **decenas de veces por día**: cuando un cliente llega a retirar o consultar un pedido, el operador escribe su nombre en el buscador para localizarlo en segundos. Toca la UI, el proxy de Nginx, la API con query params y la cláusula `ILIKE / contains` de PostgreSQL.
+   - *¿Quién te escribe si se rompe?:* El **equipo de ventas y atención al cliente en mostrador**, porque no pueden atender al público ni ubicar los pedidos en cola, provocando demoras y quejas inmediatas.
+
+### 5.3 Qué NO se puso en cada suite y por qué (Criterio de la Pirámide)
+- **Lo que NO pusimos en E2E:** No se pusieron validaciones matemáticas exhaustivas de redondeo de centavos, combinaciones complejas de stock negativo o cálculos de recargos. Hacer eso en E2E requeriría decenas de navegadores y minutos de ejecución innecesarios; esas reglas están exhaustivamente cubiertas por los 19 unit tests de Vitest y 20 de Jest en milisegundos.
+- **Lo que NO pusimos en Integración:** No se montaron pantallas, emulaciones de eventos DOM ni verificación de estilos CSS; la integración verifica exclusivamente el contrato HTTP y la persistencia de datos contra la base real.
+
+### 5.4 Ejecución de las suites y visualización del reporte en local
+
+Para reproducir localmente la ejecución de las suites contra la infraestructura levantada en `docker compose`:
+
+```bash
+cd frontend
+
+# Ejecutar las dos suites juntas (los 6 tests: API + Navegador):
+API_BASE_URL=http://localhost:3000 E2E_BASE_URL=http://localhost:41777 npx playwright test
+
+# Ejecutar cada suite por separado:
+API_BASE_URL=http://localhost:3000 npx playwright test e2e/api.spec.js        # Integración (sin browser)
+E2E_BASE_URL=http://localhost:41777 npx playwright test e2e/pedidos.spec.js   # E2E (Chromium real)
+
+# Abrir el reporte visual HTML interactivo de la última corrida:
+npx playwright show-report
+```
+
+> **Nota sobre el reporte HTML:** Playwright genera su reporte sobre la última ejecución realizada. Al correr el comando combinado con ambas variables, el reporte despliega los 6 tests en verde (`All 6 Passed`). En el pipeline de CI (§3.4), cada suite se ejecuta en un job independiente para subir dos reportes separados (`playwright-report-integracion` y `playwright-report-e2e`).
+
+---
+
+## 6. Diagnóstico del par Verde / Rojo
+
+La coexistencia de las dos suites en QA permite transformar una alarma en un **diagnóstico certero** sin necesidad de inspeccionar el código:
+
+| Integración | E2E | Diagnóstico técnico |
+|:---:|:---:|---|
+| 🟢 | 🔴 | **Fallo en Frontend:** La API y la base de datos están completamente sanas. La rotura reside en el cliente web (un botón inaccesible, un selector de UI cambiado o un campo mal nombrado en el formulario). |
+| 🔴 | ⬜ *(Salteado)* | **Fallo en Backend o BD:** La API rechazó la petición o la base falló. Por diseño del pipeline (`needs: integracion`), el job de E2E ni siquiera llega a ejecutarse, ahorrando minutos de cómputo en runners. |
+| 🟢 | 🟢 | **Cadena sana:** Tanto los contratos de datos como la experiencia de usuario funcionan correctamente. |
+
+---
+
+## 7. Integración amplia vs Integración estrecha
+
+- **Enfoque adoptado (Integración Amplia):** Se ejecutan las pruebas contra la API de QA ya desplegada, interactuando con su instancia real de Neon PostgreSQL.
+  - *Ventajas:* Prueba el entorno real, las variables de entorno inyectadas, el driver de PostgreSQL en producción y las migraciones de Prisma sin requerir levantar servicios auxiliares en el runner.
+  - *Desventajas:* Requiere que QA esté desplegado y despierto previamente (dependencia del smoke test).
+- **Alternativa (Integración Estrecha):** Levantar la aplicación en memoria en el runner con un contenedor de PostgreSQL efímero como `services:` del job de CI.
+  - *Ventajas:* Ejecución más temprana sin esperar al deploy.
+  - *Desventajas:* Mayor complejidad de configuración y no valida que la imagen empaquetada funcione en el proveedor cloud.
+
+---
+
+## 8. Cold start del Free Tier y mitigación de tests flaky
+
+### 8.1 Manejo de latencia en Render
+Los servicios de Render en plan gratuito se suspenden tras 15 minutos de inactividad (cold start). Para evitar falsos negativos en las pruebas:
+1. El step de `smoke-test` en `deploy-qa` realiza sondeos continuos (`curl`) durante un máximo de 10 minutos, despertando la API y el Frontend antes de que arranquen las suites de Playwright.
+2. En `playwright.config.js` se fijaron timeouts tolerantes:
+   - Timeout por test: **60 segundos**.
+   - Timeout por aserción (`expect`): **15 segundos**.
+   - Reintentos: **1 retry** (`retries: 1`) para absorber eventuales demoras de red transitorias.
+
+### 8.2 ¿Qué es un test flaky y cómo se evitó?
+Un **test flaky** es aquel que, sin cambios en el código bajo prueba, a veces pasa y a veces falla de manera intermitente. Es perjudicial porque destruye la confianza del equipo en la integración continua.
+- **Mitigación estricta:** Se eliminó por completo el uso de esperas fijas arbitrarias (`sleep()`, `setTimeout()`). 
+- Toda sincronización se realiza mediante el **auto-waiting** nativo de Playwright y web-first assertions (`toBeVisible()`, `toHaveCount(0)`), las cuales esperan reactivamente a que el DOM alcance el estado deseado.
+
+---
+
+## 9. Desacoplamiento del Frontend: Misma imagen para QA y PROD
+
+La imagen de frontend generada en GHCR es idéntica en QA y en Producción:
+- **Sin URLs hardcodeadas:** No se inyectaron variables de Vite durante el build (`VITE_API_URL` queda vacío).
+- **Proxy reverso dinámico:** El contenedor ejecuta Nginx utilizando `/etc/nginx/templates/default.conf.template`. Al iniciar el contenedor en Render, Nginx interpola la variable `BACKEND_URL` correspondiente a cada entorno y redirige todas las peticiones `/api/*` al backend de su ambiente respectivo.
+
+---
+
+## 10. Límites conocidos de la cadena
+
+- **Entorno QA único compartido:** Al existir un único ambiente de QA, si dos desarrolladores mergean a `main` con poca diferencia de tiempo, una corrida podría redesplegar QA mientras la suite de la corrida anterior se encuentra ejecutando.
+- **Regla operacional:** Respetar un merge a la vez esperando la finalización de los jobs `integracion` y `e2e`.
+- **Solución enterprise:** En entornos corporativos, esta limitación se resuelve mediante **Ephemeral / Preview Environments** creados por Pull Request que nacen y mueren con cada corrida.
+
+---
+
+## 11. Problemas encontrados y soluciones
+
+1. **Colisión de Vitest con specs de Playwright:**
+   - *Problema:* Vitest ejecutaba por defecto los archivos `*.spec.js` ubicados en `e2e/`, arrojando errores de contexto asíncrono al encontrar funciones de Playwright.
+   - *Solución:* Se agregó `exclude: [...configDefaults.exclude, 'e2e/**']` en `frontend/vite.config.ts`.
+2. **Ausencia de endpoint de eliminación para limpieza:**
+   - *Problema:* Para cumplir con la regla de limpieza estricta de datos generados en las pruebas, la entidad `Order` carecía de un endpoint DELETE en el backend.
+   - *Solución:* Se implementó `DeleteOrderUseCase`, el método en `PrismaOrderRepository` con borrado en cascada de items, y el endpoint `@Delete(':id')` en `OrdersController` con código HTTP 204.
+3. **Falta de selectores accesibles en los componentes:**
+   - *Problema:* Los inputs y botones del frontend carecían de etiquetas semánticas y `aria-label`, lo que obligaba a usar selectores CSS frágiles.
+   - *Solución:* Se incorporaron atributos `htmlFor`, `aria-label` y `role="alert"` en `CreateOrderPage.tsx` y `OrdersListPage.tsx`, mejorando la accesibilidad web real del sistema.
+
+---
+
+## 12. Declaración de uso de IA
+
+Se utilizó asistencia de IA como pair programmer para:
+- Estructurar las suites de prueba en Playwright (`api.spec.js` y `pedidos.spec.js`) asegurando la ausencia de `sleep` y el uso exclusivo de selectores accesibles.
+- Diseñar e implementar el caso de uso `DeleteOrderUseCase` y su integración en la arquitectura hexagonal del backend con sus pruebas unitarias.
+- Documentar las justificaciones arquitectónicas, análisis de métricas y respuestas conceptuales en `decisiones.md`.
+- Toda la configuración técnica, ejecución de pruebas locales y remotas, y resolución de dependencias fueron verificadas empíricamente.
 

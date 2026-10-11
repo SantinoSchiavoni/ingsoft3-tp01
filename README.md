@@ -143,6 +143,26 @@ En cada ejecución del pipeline de GitHub Actions:
 
 ---
 
+### 4. Pruebas de Integración y End-to-End (Playwright — TP7)
+
+Con la infraestructura iniciada localmente (por ejemplo con `docker compose up -d`):
+
+```bash
+cd frontend
+
+# Ejecutar las dos suites juntas (6 tests en total: API + Navegador):
+API_BASE_URL=http://localhost:3000 E2E_BASE_URL=http://localhost:41777 npx playwright test
+
+# O ejecutar cada suite por separado:
+API_BASE_URL=http://localhost:3000 npx playwright test e2e/api.spec.js        # Integración (sin browser)
+E2E_BASE_URL=http://localhost:41777 npx playwright test e2e/pedidos.spec.js   # E2E (Chromium real)
+
+# Abrir el reporte visual HTML interactivo:
+npx playwright show-report
+```
+
+---
+
 ## 📊 Endpoints REST Principales
 
 ### Productos (`/api/products`)

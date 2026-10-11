@@ -116,14 +116,16 @@ export const CreateOrderPage: React.FC = () => {
         </div>
       </div>
 
-      {error && <div className="alert alert-danger">{error}</div>}
+      {error && <div className="alert alert-danger" role="alert">{error}</div>}
 
       <form onSubmit={handleSubmit}>
         <div className="card" style={{ marginBottom: '1.5rem' }}>
           <h3 style={{ marginBottom: '1rem', fontSize: '1.1rem' }}>Datos del Cliente</h3>
           <div className="form-group">
-            <label className="form-label">Nombre del Cliente *</label>
+            <label htmlFor="customer-name" className="form-label">Nombre del Cliente *</label>
             <input
+              id="customer-name"
+              aria-label="Nombre del Cliente"
               type="text"
               className="form-input"
               placeholder="Ej: Juan Pérez"
@@ -132,7 +134,7 @@ export const CreateOrderPage: React.FC = () => {
               required
             />
             {customerName && !isCustomerNameValid && (
-              <span style={{ color: 'var(--danger)', fontSize: '0.8rem' }}>
+              <span role="alert" style={{ color: 'var(--danger)', fontSize: '0.8rem' }}>
                 El nombre debe contener entre 2 y 100 caracteres.
               </span>
             )}
@@ -143,8 +145,10 @@ export const CreateOrderPage: React.FC = () => {
           <h3 style={{ marginBottom: '1rem', fontSize: '1.1rem' }}>Agregar Productos</h3>
           <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div className="form-group" style={{ flex: 2, minWidth: '200px', margin: 0 }}>
-              <label className="form-label">Producto Activo</label>
+              <label htmlFor="product-select" className="form-label">Producto Activo</label>
               <select
+                id="product-select"
+                aria-label="Producto Activo"
                 className="form-select"
                 value={selectedProductId}
                 onChange={(e) => setSelectedProductId(Number(e.target.value))}
@@ -159,8 +163,10 @@ export const CreateOrderPage: React.FC = () => {
             </div>
 
             <div className="form-group" style={{ flex: 1, minWidth: '100px', margin: 0 }}>
-              <label className="form-label">Cantidad</label>
+              <label htmlFor="product-quantity" className="form-label">Cantidad</label>
               <input
+                id="product-quantity"
+                aria-label="Cantidad"
                 type="number"
                 min="1"
                 className="form-input"
@@ -172,6 +178,7 @@ export const CreateOrderPage: React.FC = () => {
             <button
               type="button"
               className="btn btn-secondary"
+              aria-label="Agregar Item"
               onClick={handleAddItem}
               disabled={!selectedProductId || selectedQuantity < 1}
             >
@@ -227,6 +234,7 @@ export const CreateOrderPage: React.FC = () => {
                           type="button"
                           className="btn btn-danger"
                           style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}
+                          aria-label={`Quitar ${item.productName}`}
                           onClick={() => handleRemoveItem(item.productId)}
                         >
                           Quitar

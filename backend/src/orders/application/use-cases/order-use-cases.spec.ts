@@ -2,9 +2,13 @@
 import { CreateOrderUseCase } from "./create-order.use-case";
 import { ConfirmOrderUseCase } from "./confirm-order.use-case";
 import { CancelOrderUseCase } from "./cancel-order.use-case";
+import { DeleteOrderUseCase } from "./delete-order.use-case";
 import { Product } from "../../../products/domain/entities/product.entity";
 import { ProductInactiveError } from "../../../products/domain/errors/product.errors";
-import { InsufficientStockError } from "../../domain/errors/order.errors";
+import {
+  InsufficientStockError,
+  OrderNotFoundError,
+} from "../../domain/errors/order.errors";
 import { OrderStatus } from "../../domain/enums/order-status.enum";
 import { OrderRepository } from "../../domain/repositories/order.repository";
 import { ProductRepository } from "../../../products/domain/repositories/product.repository";
@@ -24,6 +28,7 @@ describe("Order Use Cases (Application Layer) - Unit Tests (AAA)", () => {
       update: jest.fn(),
       confirmWithStockDeduction: jest.fn(),
       cancelWithStockRestoration: jest.fn(),
+      delete: jest.fn(),
     };
 
     mockProductRepository = {
@@ -189,6 +194,40 @@ describe("Order Use Cases (Application Layer) - Unit Tests (AAA)", () => {
 
       // Verificamos que no se persistió nada en el repositorio
       expect(mockOrderRepository.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("DeleteOrderUseCase", () => {
+    it("elimina un pedido existente correctamente", async () => {
+      const order = new Order({
+        id: 10,
+        customerName: "Carlos Gómez",
+        status: OrderStatus.PENDING,
+        items: [
+          new OrderItem({
+            productId: 1,
+            productName: "Monitor",
+            unitPrice: 100,
+            quantity: 1,
+          }),
+        ],
+      });
+      mockOrderRepository.findById.mockResolvedValue(order);
+      mockOrderRepository.delete.mockResolvedValue();
+
+      const useCase = new DeleteOrderUseCase(mockOrderRepository);
+      await useCase.execute(10);
+
+      expect(mockOrderRepository.findById).toHaveBeenCalledWith(10);
+      expect(mockOrderRepository.delete).toHaveBeenCalledWith(10);
+    });
+
+    it("lanza OrderNotFoundError si el pedido no existe", async () => {
+      mockOrderRepository.findById.mockResolvedValue(null);
+
+      const useCase = new DeleteOrderUseCase(mockOrderRepository);
+      await expect(useCase.execute(999)).rejects.toThrow(OrderNotFoundError);
+      expect(mockOrderRepository.delete).not.toHaveBeenCalled();
     });
   });
 });

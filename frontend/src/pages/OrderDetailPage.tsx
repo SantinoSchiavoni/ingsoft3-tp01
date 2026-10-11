@@ -86,8 +86,8 @@ export const OrderDetailPage: React.FC = () => {
         </button>
       </div>
 
-      {error && <div className="alert alert-danger">{error}</div>}
-      {successMessage && <div className="alert alert-success">{successMessage}</div>}
+      {error && <div className="alert alert-danger" role="alert">{error}</div>}
+      {successMessage && <div className="alert alert-success" role="status">{successMessage}</div>}
 
       {/* State timeline */}
       <div className="card" style={{ marginBottom: '1.5rem' }}>
