@@ -37,7 +37,7 @@ export const OrdersListPage: React.FC = () => {
         <div>
           <h1 className="page-title">Gestión de Pedidos</h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-            Listado y administración de pedidos en tiempo real
+            Listado y administración de pedidos en tiempo real · v6.0.0
           </p>
         </div>
         <Link to="/orders/new" className="btn btn-primary">
