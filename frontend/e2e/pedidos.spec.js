@@ -20,6 +20,7 @@ test.describe('Suite E2E - Flujos Críticos de la Aplicación (Navegador Real)',
 
     // 4. Crear el pedido
     await page.getByRole('button', { name: 'Crear Pedido' }).click();
+    await expect(page).toHaveURL(/\/orders\/\d+/);
 
     // 5. Volver al listado y verificar que aparezca
     await page.goto('/orders');
@@ -58,6 +59,7 @@ test.describe('Suite E2E - Flujos Críticos de la Aplicación (Navegador Real)',
     await page.getByLabel('Cantidad').fill('1');
     await page.getByRole('button', { name: 'Agregar Item' }).click();
     await page.getByRole('button', { name: 'Crear Pedido' }).click();
+    await expect(page).toHaveURL(/\/orders\/\d+/);
 
     // 2. El usuario va al listado y busca al cliente por su nombre
     await page.goto('/orders');
