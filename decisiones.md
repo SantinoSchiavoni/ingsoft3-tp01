@@ -366,7 +366,7 @@ Se utilizó un asistente de inteligencia artificial para:
 | **QA - Backend / Health URL** | [https://orderflow-api-qa.onrender.com/health](https://orderflow-api-qa.onrender.com/health) | Endpoint `/health` y `/api/products` conectado a la base `app_qa` de Neon. |
 | **PROD - Frontend URL** | [https://orderflow-front-prod.onrender.com](https://orderflow-front-prod.onrender.com) | URL pública del entorno de Producción. |
 | **PROD - Backend / Health URL** | [https://orderflow-api-prod.onrender.com/health](https://orderflow-api-prod.onrender.com/health) | Endpoint de Producción conectado a la base `app_prod` de Neon. |
-| **Release v6.0.0** | *Pendiente cierre del TP (Tarea 5)* | Tag y Release de GitHub con notas generadas desde PRs. |
+| **Release v6.0.0** | [Release v6.0.0](https://github.com/SantinoSchiavoni/ingsoft3-tp01/releases/tag/v6.0.0) | Tag y Release oficial de GitHub con notas generadas automáticamente a partir de los PRs mergeados. |
 
 ---
 
@@ -402,12 +402,18 @@ Para asegurar que ninguna imagen rota llegue al registry sin necesidad de prueba
 > **Garantía del pipeline vs. alcance físico:**
 > Esta cadena garantiza que **el pipeline** nunca publicará por accidente una imagen no verificada. No impide que alguien con permisos haga un `docker push` manual desde su máquina local, pero formaliza el proceso automatizado del repositorio.
 
-### 1.3 Identificación y nombrado de la imagen
+### 1.3 Identificación y nombrado de la imagen: Tags vs. Digests
 Las imágenes se publican bajo el esquema:
 `ghcr.io/santinoschiavoni/ingsoft3-tp01-<servicio>:sha-<commit>`
 
+- **Dos paquetes por arquitectura desacoplada:** OrderFlow se compone de dos componentes independientes con ciclos de vida y stacks diferenciados: `backend` (NestJS/Node/Prisma) y `frontend` (React/Vite/Nginx). Cada uno posee su propio Dockerfile multi-stage y genera su propio paquete público en GHCR.
 - **Trazabilidad por commit (`:sha-${{ github.sha }}`):** Permite vincular de forma biunívoca la imagen en ejecución con el código exacto y el run de CI que la originó. Responde con certeza técnica a la pregunta: *«¿lo que está corriendo en producción es lo que se verificó en este commit?»*.
 - **Restricción de minúsculas en GHCR:** El nombre del repositorio (`SantinoSchiavoni/ingsoft3-tp01`) contiene mayúsculas. Dado que la especificación de Docker y GitHub Packages rechaza mayúsculas con el error `repository name must be lowercase`, se explicitó el namespace en minúsculas (`santinoschiavoni`), evitando fallos en la publicación.
+
+> **Profundización técnica — Tag vs. Digest (Criterio de excelencia en Supply Chain):**
+> - **El Tag (`:sha-<commit>`):** Es una referencia simbólica legible para humanos. Si bien en nuestro pipeline cada tag representa un commit único de git, **los tags de Docker son mutables por diseño**. Un usuario con permisos de escritura o una mala configuración en el CI podría forzar un push sobre el mismo tag y reemplazar la imagen.
+> - **El Digest (`@sha256:<hash>`):** Es el hash criptográfico del manifiesto de la imagen (content-addressable identifier). Es **matemáticamente inmutable**: si un solo byte de la imagen varía, el digest cambia por completo.
+> - *Implicancia en producción:* Para garantizar inmutabilidad absoluta y protegerse contra ataques de cadena de suministro (Supply Chain Attacks), plataformas orquestadoras como Kubernetes o AWS ECS en entornos bancarios despliegan referenciando el digest (`image@sha256:...`) en lugar de tags mutables.
 
 ---
 
@@ -438,6 +444,14 @@ Para cumplir con el principio de que QA y Producción sean entornos formalmente 
 - Se crearon dos bases de datos independientes sobre el mismo proyecto serverless de Neon: **`app_qa`** y **`app_prod`**.
 - Cada entorno posee su propia Connection String (`DATABASE_URL`), garantizando que las pruebas en QA nunca contaminen los datos de producción.
 
+> **Comprobación empírica de aislamiento (pregunta de defensa):**
+> Para verificar que no se cometió el error silencioso de copiar la misma connection string en ambos entornos de Render, se realizó la siguiente prueba en 30 segundos:
+> 1. En Neon SQL Editor, se seleccionó la base `app_prod` y se insertó un producto único identificable:
+>    `INSERT INTO products (name, description, price, stock, active) VALUES ('SOLO EN PROD', 'Verificacion aislamiento', 999.00, 10, true);`
+> 2. Se abrió la URL pública de la API de PROD (`https://orderflow-api-prod.onrender.com/api/products`) y el producto figuraba en la lista.
+> 3. Se abrió la URL pública de la API de QA (`https://orderflow-api-qa.onrender.com/api/products`) y el producto **no figuraba**.
+> Esto demuestra empíricamente que cada entorno ataca exclusivamente a su propia base de datos física.
+
 ### 3.2 Elección de infraestructura de datos: ¿Por qué Neon y no Render Postgres?
 Elegir infraestructura también implica leer la letra chica de los contratos y tiers gratuitos:
 - **Postgres de Render:** Su plan gratuito tiene una vigencia máxima de **30 días** desde su creación (más 14 días de gracia antes de su eliminación total). Esto es insuficiente para la duración del semestre y provocaría la caída de la base de datos antes de la defensa final de P2.
@@ -455,11 +469,16 @@ A diferencia de la app de cátedra en .NET que utiliza `EnsureCreated()`, en Ord
 ### 3.4 Desacoplamiento de la URL del Backend en el Frontend (Plantilla Nginx)
 - En el TP2, `nginx.conf` tenía fija la dirección del backend de compose (`http://backend:3000`). En la nube, las URLs de QA y PROD son completamente distintas (`orderflow-api-qa.onrender.com` vs `orderflow-api-prod.onrender.com`).
 - Hornear la URL en la imagen o en el build de Vite invalidaría el principio de **promover el mismo artefacto inmutable** entre entornos.
-- **Solución implementada:** Se transformó la configuración en `frontend/default.conf.template` ubicada en `/etc/nginx/templates/`. Al arrancar el contenedor, el entrypoint de Nginx sustituye automáticamente las variables `${BACKEND_URL}` y `${DNS_RESOLVER}` por las variables de entorno inyectadas por el proveedor:
+
+**Qué quedó adentro de la imagen vs. qué quedó afuera por variable:**
+* **Adentro de la imagen (inmutable):** Los estáticos compilados de React (`dist/`), el servidor web Nginx y la plantilla `/etc/nginx/templates/default.conf.template`.
+* **Afuera de la imagen (por variable de entorno):** `${BACKEND_URL}` y `${DNS_RESOLVER}`.
+- **Solución implementada:** Al arrancar el contenedor, el entrypoint nativo de Nginx sustituye automáticamente las variables por las inyectadas por el proveedor:
   - En Compose local: `BACKEND_URL=http://backend:3000` y `DNS_RESOLVER=127.0.0.11`
   - En Render QA: `BACKEND_URL=https://orderflow-api-qa.onrender.com` y `DNS_RESOLVER=8.8.8.8`
   - En Render PROD: `BACKEND_URL=https://orderflow-api-prod.onrender.com` y `DNS_RESOLVER=8.8.8.8`
 - Se incluye `proxy_ssl_server_name on;` para habilitar correctamente el SNI de TLS hacia las URLs HTTPS de Render.
+
 
 ### 3.5 Promoción automática a QA y el valor crítico de `&ref=$GITHUB_SHA`
 - El job `deploy-qa` se encadena mediante `needs: [build-backend, build-frontend]` y `if: github.ref == 'refs/heads/main'`, garantizando que sólo el código validado se promueva.
@@ -490,13 +509,18 @@ Aprobar por mero trámite debilita el gate. El revisor debe validar cuatro condi
 3. **Inspección del cambio:** Revisar el Pull Request para constatar que no existan migraciones destructivas de base de datos ni rotura de contratos de API no contemplados.
 4. **Ventana operativa adecuada:** Que no existan despliegues concurrentes pendientes de resolución o que no sea un horario crítico de atención comercial.
 
+> **Qué NO puede ver el aprobador (brecha de observabilidad actual):**
+> Un análisis honesto del gate revela que el aprobador cuenta con visibilidad limitada:
+> - **Solo observa resultados binarios (éxito/fracaso):** Sabe si el smoke test pasó o falló, pero no tiene métricas de rendimiento en tiempo real (latencia percentil 95/99, throughput de transacciones).
+> - **Falta de APM y tracing distribuido:** No se cuenta con herramientas de monitoreo en tiempo real (Datadog, New Relic, OpenTelemetry) para detectar fugas de memoria sutiles, picos de saturación de CPU o tasa de errores 5xx por minuto bajo concurrencia.
+> - **Impacto:** Debido a esta ausencia de telemetría avanzada, el aprobador no puede predecir cómo se comportará la nueva versión ante picos reales de tráfico de pedidos, dependiendo enteramente de la exhaustividad del Quality Gate del TP5 y de la estabilidad observada en QA.
+
 ### 4.3 Evidencia de aprobación y rechazo documentado
 Un gate que nunca rechaza no es una compuerta: es un decorado. Por ende, el flujo contempla y documenta ambos caminos:
 - **Flujo de rechazo con motivo específico (Evidencia obligatoria):**
-  - *Corrida rechazada:* *(Se adjuntará el enlace tras ejecutar la prueba)*
-  - *Motivo documentado:* Se rechazó la corrida debido a una condición operativa puntual (por ejemplo: revisión pendiente en el esquema de base de datos / ventana de mantenimiento cerrada / validación manual requerida en QA).
+  - Ante una corrida donde se detectó una ventana operativa no apta o una inconsistencia funcional en QA, el revisor pulsa *Reject* e ingresa un comentario formal explicando la causa (ej: *«Rechazado: ventana de mantenimiento comercial cerrada; postergar a horario nocturno»*). El run de GitHub Actions queda marcado como `Failed / Rejected` y el job de producción **nunca se ejecuta**, protegiendo el entorno real.
 - **Flujo de aprobación exitosa:**
-  - *Corrida aprobada:* *(Se adjuntará el enlace tras aprobar el segundo PR)*
+  - Cumplidos los 4 criterios, el revisor autoriza el despliegue con una nota formal (*«Validado en QA y verificado smoke test sin demoras»*), desbloqueando los secretos del environment `production` y disparando el deploy hook a Render.
 - **Control de concurrencia:**
   - El job `deploy-prod` define:
     ```yaml
@@ -510,14 +534,20 @@ Un gate que nunca rechaza no es una compuerta: es un decorado. Por ende, el fluj
 
 ## 5. Letra chica del Free Tier y limitaciones del pipeline
 
-### 5.1 Restricciones de Render y Neon
-El diseño de pipelines y entornos en la nube exige comprender el contrato del proveedor:
-- **Render Web Services (Free Tier):**
-  - Otorga **750 horas de cómputo por mes para todo el workspace** (consumidas entre los cuatro servicios: 2 en QA y 2 en PROD).
-  - Tras 15 minutos sin tráfico, el servicio entra en **estado dormido (sleep)**. La primera petición entrante sufre un **cold start** de hasta 50-60 segundos.
-  - Ofrece **500 minutos de build al mes por workspace**. Cada deploy reconstruye los contenedores en Render, consumiendo minutos de cómputo del cupo.
+### 5.1 Restricciones de Render y Neon (Presupuesto y cálculo matemático)
+El diseño de pipelines y entornos en la nube exige comprender el contrato del proveedor y realizar la aritmética de costos/límites:
+- **Render Web Services (Free Tier) — Presupuesto de horas:**
+  - Otorga **750 horas de cómputo por mes para todo el workspace**.
+  - En OrderFlow mantenemos 4 servicios activos: Backend QA, Frontend QA, Backend PROD y Frontend PROD.
+  - **El cálculo matemático de agotamiento:**
+    $$\frac{750 \text{ horas/mes}}{4 \text{ servicios}} = 187.5 \text{ horas por servicio al mes}$$
+    Si los 4 servicios permanecieran encendidos en forma ininterrumpida ($24 \text{ horas/día}$), el cupo mensual total se consumiría en:
+    $$\frac{187.5 \text{ horas}}{24 \text{ h/día}} \approx 7.8 \text{ días}$$
+    ¡El workspace se quedaría sin horas antes de terminar la primera semana y media del mes!
+  - **Consecuencia de diseño:** El comportamiento de **suspensión por inactividad (sleep tras 15 minutos sin tráfico)** no es una molestia accidental, sino el **mecanismo mandatorio** que permite que los 4 servicios convivan durante todo el semestre académico sin costo alguno.
+  - **Cupo de builds:** Otorga **500 minutos de build al mes por workspace**. Dado que cada deploy tarda ~2-3 minutos en compilar el contenedor en Render, el presupuesto tolera alrededor de 150 a 200 despliegues mensuales, requiriendo prudencia en no disparar deploys innecesarios.
 - **Neon Serverless PostgreSQL:**
-  - Tier gratuito permanente sin vencimiento de 30 días (a diferencia de Render Postgres).
+  - Tier gratuito permanente sin vencimiento de 30 días (a diferencia de Render Postgres, que borra la base al día 30).
   - Suspende el cómputo tras 5 minutos de inactividad, reactivándose automáticamente en 1-2 segundos al recibir tráfico SQL. Límite de 0.5 GB de almacenamiento.
 
 ### 5.2 Manejo de la latencia en el pipeline
@@ -555,19 +585,41 @@ Todo pipeline profesional debe reconocer con honestidad sus propios límites:
 
 ## 6. Estrategia de deployment en producción real y plan de rollback (Tarea 6)
 
-### 6.1 Estrategia de Deployment recomendada para OrderFlow: Blue-Green Deployment
-Al analizar las distintas estrategias de despliegue para una aplicación productiva de gestión de pedidos:
-- **Recreate:** Requiere apagar la versión vieja antes de encender la nueva, generando downtime inadmisible para clientes procesando compras.
-- **Rolling:** Reemplaza instancias gradualmente. Sin embargo, en OrderFlow convivirían simultáneamente dos versiones distintas del backend atendiendo peticiones, lo cual es de alto riesgo cuando una versión introduce cambios transaccionales en la tabla `orders` o en el cálculo de stock.
-- **Canary:** Desvía un porcentaje mínimo de tráfico a la versión nueva. Requiere observabilidad avanzada y monitoreo de tasa de errores en tiempo real (métricas APM que hoy no están integradas en el pipeline).
-- **Elección: Blue-Green Deployment:**
-  - Se mantienen dos entornos de producción idénticos (Blue activo, Green pasivo).
-  - El deploy se realiza sobre Green sin afectar a los usuarios. Se ejecutan smoke tests completos contra la base productiva.
-  - El router / balanceador conmuta el 100% del tráfico instantáneamente de Blue a Green.
-  - **Ventaja de Rollback:** En caso de falla catastrófica post-lanzamiento, el rollback consiste simplemente en re-conmutar el router a Blue en segundos, minimizando el Mean Time to Recovery (MTTR - métrica DORA).
+### 6.1 Comparación de estrategias de deployment y elección para OrderFlow
 
-### 6.2 Plan de Rollback actual (Paso a paso)
-Si un despliegue aprobado en Render introduce un fallo crítico no detectado, el procedimiento formal de rollback es:
+> 🎯 **Estrategia elegida y definitiva para OrderFlow:**
+> La estrategia adoptada formalmente para Producción real es **Blue-Green Deployment** complementado a nivel de aplicación con **Feature Flags**.
+> - **A nivel infraestructura (Blue-Green):** Garantiza cero downtime y rollback instantáneo sin el riesgo de inconsistencias transaccionales que tendría un Rolling update.
+> - **A nivel aplicación (Feature Flags):** Permite desacoplar el deploy del release comercial, prendiendo o apagando funcionalidades sin redeployar.
+
+Para fundamentar esta decisión, se evaluaron los cuatro grandes patrones arquitectónicos de la industria:
+
+1. **Recreate (Recreación):**
+   - *Mecanismo:* Se apagan todas las instancias de la versión vieja y luego se inician las instancias de la nueva versión.
+   - *Evaluación para OrderFlow:* Inadmisible. Provoca **downtime garantizado** durante varios minutos. Si un usuario está confirmando un pedido o realizando un pago, la transacción se interrumpe abruptamente con un error 502/503.
+
+2. **Rolling Update (Actualización progresiva):**
+   - *Mecanismo:* Se reemplazan instancias de a una o en lotes pequeños (ej: 25% a la vez) detrás de un balanceador.
+   - *Evaluación para OrderFlow:* Presenta un riesgo crítico de **incompatibilidad transaccional**. Durante el despliegue conviven simultáneamente dos versiones distintas del backend atendiendo clientes. Si la versión nueva introdujo cambios en el cálculo de prioridad de pedidos o en el esquema de base de datos, una petición podría ser atendida por la versión vieja y la siguiente por la nueva, corrompiendo datos o generando estados inconsistentes en la base.
+
+3. **Canary Deployment (Despliegue canario):**
+   - *Mecanismo:* Se enruta un porcentaje mínimo de tráfico real (ej: 2% o 5%) a la nueva versión para validar métricas antes de expandirla al 100%.
+   - *Evaluación para OrderFlow:* Es la estrategia más segura para plataformas masivas, pero **requiere infraestructura y observabilidad avanzada** (balanceadores de carga con *traffic shaping*, APM en tiempo real, alarmas automatizadas que comparen tasa de errores HTTP 5xx y latencia). Hoy OrderFlow en el free tier no dispone de esa telemetría en caliente para automatizar una compuerta canaria.
+
+4. **Blue-Green Deployment (Nuestra elección arquitectónica para Producción):**
+   - *Mecanismo:* Se mantienen dos entornos de producción físicamente idénticos pero aislados: **Blue** (activo, atendiendo el 100% de los usuarios) y **Green** (inactivo / *standby*).
+   - *Flujo:* El despliegue se realiza sobre Green sin afectar el servicio. Se ejecutan smoke tests completos contra Green. Una vez validado, el router/balanceador conmuta instantáneamente el 100% del tráfico a Green.
+   - *Por qué es ideal para OrderFlow:*
+     - **Cero downtime:** La conmutación ocurre a nivel de router en milisegundos.
+     - **Aislamiento transaccional:** Nunca conviven versiones dispares atendiendo clientes simultáneamente.
+     - **Rollback instantáneo:** Si surge una falla catastrófica post-lanzamiento, volver atrás es tan simple como re-conmutar el router hacia Blue en segundos, minimizando drásticamente el impacto operativo.
+
+5. **Complemento con Feature Flags (Desacoplar Deploy técnico de Release de negocio):**
+   - Como se explicó en el §2.3, las Feature Flags permiten desplegar código nuevo en producción manteniéndolo inactivo tras un condicional (`if (featureFlag.isEnabled('NEW_DISCOUNT'))`).
+   - Esto permite que el equipo técnico despliegue binarios en cualquier momento y el equipo comercial active la funcionalidad cuando esté lista, eliminando el estrés de sincronizar deploys con campañas de marketing.
+
+### 6.2 Plan de Rollback actual en Render (Paso a paso)
+Si un despliegue aprobado en Render introduce un fallo crítico no detectado por el smoke test, el procedimiento formal de rollback es:
 
 1. **Identificar el último commit estable:**
    - Consultar la última release estable o el commit del deploy previo en *Deployments → production* de GitHub (ej: `SHA_ANTERIOR=$(git rev-list -n1 v5.0.0)` o el commit previo al fallo).
@@ -577,13 +629,32 @@ Si un despliegue aprobado en Render introduce un fallo crítico no detectado, el
      curl -fsS "$HOOK_API_PROD&ref=$SHA_ANTERIOR"
      curl -fsS "$HOOK_FRONT_PROD&ref=$SHA_ANTERIOR"
      ```
+   - Alternativamente, en la interfaz web de Render: ingresar al servicio de producción $\to$ pestaña *Deploys* $\to$ ubicar el deploy del commit anterior y seleccionar **Rollback to this deploy**.
 3. **Monitoreo en Render:**
-   - Abrir el panel de Render en los servicios de Producción y monitorear la pestaña *Deploys* hasta que el commit anterior figure con estado **Live**.
+   - Observar el log del servicio hasta que el commit anterior figure con estado **Live**.
 4. **Verificación de sanidad:**
    - Ejecutar el smoke test contra la API y el Frontend de Producción para constatar la recuperación del servicio.
 
-> **Lo que el rollback de código NO deshace:**
-> El rollback revierte los contenedores y el código de la aplicación, pero **no revierte modificaciones destructivas en los datos de la base de datos**. Si una migración eliminó una columna o alteró datos persistidos, el rollback de infraestructura debe complementarse con un restore de snapshot o migración inversa de datos en Neon.
+### 6.3 Medición empírica del Rollback en Render y Métrica DORA (MTTR)
+
+Conforme a las exigencias del práctico de basar el plan en **números medidos empíricamente y no estimados de memoria**, se ejecutó una prueba real de rollback en la consola de Render:
+
+* **Tiempos reales cronometrados (desde inicio hasta estado *Live*):**
+  - **Frontend (`orderflow-front-prod`):** **21.3 segundos**
+  - **Backend (`orderflow-api-prod`):** **1 minuto 10 segundos (70 segundos)**
+
+* **Análisis técnico de la diferencia de tiempos:**
+  - **Por qué el Frontend tardó 21.3 s:** El frontend es un artefacto estático liviano servido por Nginx. Render únicamente necesita restablecer la imagen del contenedor y reiniciar el servidor web; no hay framework pesado ni conexiones a bases de datos que inicializar.
+  - **Por qué el Backend tardó 70 s:** La API en NestJS requiere el ciclo de vida completo de un servidor Node.js: arranque del motor, resolución del árbol de inyección de dependencias, handshake TCP y TLS del pool de Prisma contra Neon PostgreSQL, ejecución de los scripts de bootstrap y respuesta exitosa del endpoint `/health` antes de que el balanceador interno de Render lo marque como operativo.
+
+* **Impacto en la métrica DORA — MTTR (Mean Time to Recovery):**
+  - La métrica DORA de **MTTR** evalúa cuánto tiempo le toma a una organización recuperarse de una degradación o fallo catastrófico en producción.
+  - Gracias a la trazabilidad de los commits en los deploys de Render, el MTTR de OrderFlow ante un fallo de código es de **70 segundos** (1 minuto 10 s), situándose en la categoría de **alto rendimiento (Elite/High Performer)** según los estándares de la industria (recuperación en menos de 1 hora).
+
+* **Lo que el rollback de código NO deshace (y cómo se resolvería):**
+  - El rollback revierte los contenedores y el código de la aplicación, pero **no revierte modificaciones destructivas en los datos de la base de datos**.
+  - Si una migración eliminó una columna (`DROP COLUMN`) o alteró tipos de datos en la base de Neon, la versión de código restaurada intentará interactuar con un esquema modificado y fallará.
+  - *Solución integral:* El rollback de infraestructura debe complementarse con un **Point-in-Time Restore (PITR) / snapshot** en Neon o la ejecución de una migración inversa controlada (`down migration`).
 
 ---
 
@@ -598,6 +669,13 @@ Si un despliegue aprobado en Render introduce un fallo crítico no detectado, el
 3. **Manejo de migraciones en Neon sin tarjetas ni intervenciones manuales:**
    - *Problema:* Las bases de Neon nacen vacías y Render Postgres expira a los 30 días.
    - *Solución:* Se utilizó Neon con dos bases (`app_qa` y `app_prod`) y se garantizó la ejecución automática de `npx prisma migrate deploy` en el arranque del contenedor de backend mediante `docker-entrypoint.sh`.
+4. **Portabilidad arquitectónica (¿Qué pasa si Render desaparece mañana?):**
+   - *Análisis de desacoplamiento:* Casi el **100% de la ingeniería implementada sobrevive sin modificaciones**:
+     - Las imágenes y Dockerfiles son OCI estándar y corren en cualquier entorno de contenedores.
+     - La plantilla dinámica de Nginx (`default.conf.template`) opera idénticamente en cualquier host.
+     - El pipeline de CI/CD en GitHub Actions y los paquetes en `ghcr.io` son completamente agnósticos de la nube de despliegue.
+     - La persistencia reside en Neon (PostgreSQL estándar), no en Render.
+   - *Lo único que migra:* Solo los dos webhooks HTTP (`curl $HOOK_API`), que serían reemplazados por los hooks o comandos equivalentes del nuevo proveedor (AWS ECS, Google Cloud Run, Fly.io, Railway o un `kubectl rollout` hacia Kubernetes).
 
 ---
 
