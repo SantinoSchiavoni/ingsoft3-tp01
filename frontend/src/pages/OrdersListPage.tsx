@@ -31,6 +31,15 @@ export const OrdersListPage: React.FC = () => {
     fetchOrders();
   }, [statusFilter, customerFilter]);
 
+  const handleDeleteOrder = async (orderId: number): Promise<void> => {
+    try {
+      await api.deleteOrder(orderId);
+      setOrders((prev) => prev.filter((o) => o.id !== orderId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al eliminar el pedido');
+    }
+  };
+
   return (
     <div>
       <div className="page-header">
@@ -45,13 +54,15 @@ export const OrdersListPage: React.FC = () => {
         </Link>
       </div>
 
-      {error && <div className="alert alert-danger">{error}</div>}
+      {error && <div className="alert alert-danger" role="alert">{error}</div>}
 
       <div className="card" style={{ marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
           <div className="form-group" style={{ flex: 1, minWidth: '200px', margin: 0 }}>
-            <label className="form-label">Filtrar por Estado</label>
+            <label htmlFor="status-filter" className="form-label">Filtrar por Estado</label>
             <select
+              id="status-filter"
+              aria-label="Filtrar por Estado"
               className="form-select"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
@@ -66,8 +77,10 @@ export const OrdersListPage: React.FC = () => {
           </div>
 
           <div className="form-group" style={{ flex: 1, minWidth: '200px', margin: 0 }}>
-            <label className="form-label">Buscar Cliente</label>
+            <label htmlFor="customer-filter" className="form-label">Buscar Cliente</label>
             <input
+              id="customer-filter"
+              aria-label="Buscar Cliente"
               type="text"
               className="form-input"
               placeholder="Nombre del cliente..."
@@ -122,6 +135,15 @@ export const OrdersListPage: React.FC = () => {
                         <Link to={`/orders/${order.id}`} className="btn btn-secondary" style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}>
                           Ver Detalle
                         </Link>
+                        <button
+                          type="button"
+                          className="btn btn-danger"
+                          aria-label={`Borrar ${customerName}`}
+                          style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem', marginLeft: '0.5rem' }}
+                          onClick={() => handleDeleteOrder(order.id)}
+                        >
+                          Borrar
+                        </button>
                       </td>
                     </tr>
                   );

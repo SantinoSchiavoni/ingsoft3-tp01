@@ -30,6 +30,7 @@ export class Order {
   private _updatedAt: Date;
 
   constructor(props: OrderProps) {
+    this.id = props.id;
     this._customerName = Order.validateCustomerName(props.customerName);
     this._status = props.status ?? OrderStatus.PENDING;
     this.createdAt = props.createdAt ?? new Date();

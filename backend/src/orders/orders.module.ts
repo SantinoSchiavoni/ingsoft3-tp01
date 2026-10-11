@@ -4,6 +4,7 @@ import { CancelOrderUseCase } from "./application/use-cases/cancel-order.use-cas
 import { ConfirmOrderUseCase } from "./application/use-cases/confirm-order.use-case";
 import { CreateOrderUseCase } from "./application/use-cases/create-order.use-case";
 import { DeliverOrderUseCase } from "./application/use-cases/deliver-order.use-case";
+import { DeleteOrderUseCase } from "./application/use-cases/delete-order.use-case";
 import { GetOrderByIdUseCase } from "./application/use-cases/get-order-by-id.use-case";
 import { GetOrdersUseCase } from "./application/use-cases/get-orders.use-case";
 import { StartPreparingOrderUseCase } from "./application/use-cases/start-preparing-order.use-case";
@@ -28,6 +29,7 @@ import { OrdersController } from "./presentation/controllers/orders.controller";
     StartPreparingOrderUseCase,
     DeliverOrderUseCase,
     CancelOrderUseCase,
+    DeleteOrderUseCase,
   ],
   exports: [
     ORDER_REPOSITORY,
@@ -36,6 +38,7 @@ import { OrdersController } from "./presentation/controllers/orders.controller";
     CreateOrderUseCase,
     ConfirmOrderUseCase,
     CancelOrderUseCase,
+    DeleteOrderUseCase,
   ],
 })
 export class OrdersModule {}

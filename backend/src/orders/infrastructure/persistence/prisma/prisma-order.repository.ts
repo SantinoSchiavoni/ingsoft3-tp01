@@ -184,4 +184,10 @@ export class PrismaOrderRepository implements OrderRepository {
 
     return this.mapToDomain(result);
   }
+
+  async delete(id: number): Promise<void> {
+    await this.prisma.order.delete({
+      where: { id },
+    });
+  }
 }

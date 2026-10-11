@@ -133,4 +133,13 @@ export const api = {
     });
     return handleResponse<Order>(res);
   },
+
+  async deleteOrder(id: number): Promise<void> {
+    const res = await fetch(`${API_URL}/api/orders/${id}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      throw new Error(`HTTP Error ${res.status}: ${res.statusText}`);
+    }
+  },
 };

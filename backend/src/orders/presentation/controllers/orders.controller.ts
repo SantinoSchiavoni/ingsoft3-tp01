@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseIntPipe,
   Patch,
@@ -11,6 +13,7 @@ import {
 import { CancelOrderUseCase } from "../../application/use-cases/cancel-order.use-case";
 import { ConfirmOrderUseCase } from "../../application/use-cases/confirm-order.use-case";
 import { CreateOrderUseCase } from "../../application/use-cases/create-order.use-case";
+import { DeleteOrderUseCase } from "../../application/use-cases/delete-order.use-case";
 import { DeliverOrderUseCase } from "../../application/use-cases/deliver-order.use-case";
 import { GetOrderByIdUseCase } from "../../application/use-cases/get-order-by-id.use-case";
 import { GetOrdersUseCase } from "../../application/use-cases/get-orders.use-case";
@@ -32,6 +35,7 @@ export class OrdersController {
     private readonly startPreparingOrderUseCase: StartPreparingOrderUseCase,
     private readonly deliverOrderUseCase: DeliverOrderUseCase,
     private readonly cancelOrderUseCase: CancelOrderUseCase,
+    private readonly deleteOrderUseCase: DeleteOrderUseCase,
   ) {}
 
   @Get()
@@ -75,5 +79,11 @@ export class OrdersController {
   @Post(":id/cancel")
   async cancel(@Param("id", ParseIntPipe) id: number): Promise<Order> {
     return this.cancelOrderUseCase.execute(id);
+  }
+
+  @Delete(":id")
+  @HttpCode(204)
+  async delete(@Param("id", ParseIntPipe) id: number): Promise<void> {
+    return this.deleteOrderUseCase.execute(id);
   }
 }

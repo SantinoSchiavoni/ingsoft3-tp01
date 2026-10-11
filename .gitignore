@@ -26,4 +26,8 @@ prisma/*.db-journal
 .DS_Store
 Thumbs.db
 .vscode/
-.idea/
+.idea/
+
+# archivos playwright
+playwright-report/
+test-results/

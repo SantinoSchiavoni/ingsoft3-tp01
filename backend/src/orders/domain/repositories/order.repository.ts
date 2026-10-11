@@ -24,6 +24,7 @@ export interface OrderRepository {
     order: Order,
     stockRestorations: StockChange[],
   ): Promise<Order>;
+  delete(id: number): Promise<void>;
 }
 
 export const ORDER_REPOSITORY = Symbol("ORDER_REPOSITORY");
