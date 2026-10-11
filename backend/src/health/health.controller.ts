@@ -3,6 +3,7 @@ import { PrismaService } from "../prisma/prisma.service";
 
 export interface HealthResponse {
   status: string;
+  version: string;
   timestamp: string;
   database: string;
 }
@@ -22,6 +23,7 @@ export class HealthController {
 
     return {
       status: dbStatus === "ok" ? "ok" : "degraded",
+      version: "6.1",
       timestamp: new Date().toISOString(),
       database: dbStatus,
     };
