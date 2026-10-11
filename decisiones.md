@@ -5,6 +5,7 @@
 3. [TP3 - Planificacion DevOps](#tp3---planificacion-devops)
 4. [TP4 — CI: Pipelines as Code](#tp4--ci-pipelines-as-code)
 5. [TP5 — Calidad automatizada: tests, coverage y el umbral que frena un merge](#tp5--calidad-automatizada-tests-coverage-y-el-umbral-que-frena-un-merge)
+6. [TP6 — CD: environments, aprobaciones y deployment patterns](#tp6--cd-environments-aprobaciones-y-deployment-patterns)
 
 ---
 
@@ -346,5 +347,132 @@ Se utilizó un asistente de inteligencia artificial para:
 | **Secuencia rojo $\to$ tests $\to$ verde $\to$ merge (PR 1)** | [Pull Request #24](https://github.com/SantinoSchiavoni/ingsoft3-tp01/pull/24) |
 | **Freno vigente en rojo para defensa oral (PR 2)** | *Pendiente de creación (se deja abierto hasta la defensa)* |
 
+---
+
+# TP6 — CD: environments, aprobaciones y deployment patterns
+
+## Enlaces de este TP
+
+> **Nota:** Conforme al entregable de la cátedra, esta sección reúne todos los accesos externos y corridas requeridas para la corrección y defensa de P2.
+
+| Recurso / Evidencia | Enlace / Identificador | Descripción |
+|---|---|---|
+| **Paquete Backend (GHCR)** | [ghcr.io/santinoschiavoni/ingsoft3-tp01-backend](https://github.com/SantinoSchiavoni/ingsoft3-tp01/pkgs/container/ingsoft3-tp01-backend) | Imagen pública de backend en GitHub Container Registry, etiquetada por commit (`:sha-<commit>`). Descargable sin credenciales. |
+| **Paquete Frontend (GHCR)** | [ghcr.io/santinoschiavoni/ingsoft3-tp01-frontend](https://github.com/SantinoSchiavoni/ingsoft3-tp01/pkgs/container/ingsoft3-tp01-frontend) | Imagen pública de frontend en GitHub Container Registry, etiquetada por commit (`:sha-<commit>`). Descargable sin credenciales. |
+| **Cadena Eslabón 2: PR saltea registry** | [Actions Run 37405656099](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/runs/37405656099) | Corrida de Pull Request con tests en verde donde el step «Entrar al registry» aparece **salteado** (prueba que solo `main` publica). |
+| **Cadena Eslabón 3: Corrida de main** | [Actions Run 37405896826](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/runs/37405896826) | Corrida post-merge en `main` donde se evidencia que «Construir y publicar la imagen...» es el **último paso** del job tras los tests y coverage. |
+| **QA - Frontend URL** | [https://orderflow-front-qa.onrender.com](https://orderflow-front-qa.onrender.com) | URL pública del entorno QA servido con Nginx contenedorizado. |
+| **QA - Backend / Health URL** | [https://orderflow-api-qa.onrender.com/health](https://orderflow-api-qa.onrender.com/health) | Endpoint `/health` y `/api/...` conectado a la base `app_qa` de Neon. |
+| **PROD - Frontend URL** | [https://orderflow-front-prod.onrender.com](https://orderflow-front-prod.onrender.com) | URL pública del entorno de Producción. |
+| **PROD - Backend / Health URL** | [https://orderflow-api-prod.onrender.com/health](https://orderflow-api-prod.onrender.com/health) | Endpoint de Producción conectado a la base `app_prod` de Neon. |
+| **Release v6.0.0** | *Pendiente cierre del TP (Tarea 5)* | Tag y Release de GitHub con notas generadas desde PRs. |
 
 
+---
+
+## 1. El artefacto: qué entrega el pipeline y por qué el registry es confiable (Tarea 1)
+
+### 1.1 ¿Por qué el artefacto nace sólo de un build verde?
+Hasta el TP5, el pipeline era meramente de **verificación**: construía, ejecutaba tests, evaluaba el umbral de cobertura y finalizaba. Al apagarse el runner, la imagen construida se destruía. 
+
+Un pipeline que no produce un artefacto desplegable es sólo compilación y testeo, no integración continua real. Para que el proceso de despliegue sea confiable, debe existir una unidad concreta e inmutable que pueda ser transportada a los entornos sin necesidad de reconstruirla.
+
+El artefacto **nace de un build verde o no nace**:
+- Si publicáramos imágenes ante tests fallidos, el registry se convertiría en un depósito arbitrario de binarios rotos y la etiqueta de publicación perdería su significado de garantía de calidad.
+- Al condicionar la publicación a la verificación exitosa, estar publicado en `ghcr.io` garantiza contractualmente: *«este código pasó la suite completa de pruebas y el umbral de cobertura sin errores»*.
+
+### 1.2 La cadena de tres eslabones que garantiza la confiabilidad
+Para asegurar que ninguna imagen rota llegue al registry sin necesidad de pruebas manuales o configuraciones complejas, se implementó una cadena de tres eslabones autoportante:
+
+1. **Primer eslabón — Nada entra a `main` sin el pipeline en verde:**
+   - La rama `main` está protegida mediante el branch protection rule del TP4 y el Quality Gate del TP5 (umbral de 70% de coverage). No es posible realizar un merge si la suite de tests falla.
+2. **Segundo eslabón — Sólo lo que entra a `main` se publica:**
+   - En el step `Entrar al registry` se condiciona con `if: github.event_name == 'push'`.
+   - En el step `Construir y publicar la imagen` se utiliza:
+     ```yaml
+     push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+     ```
+   - En los Pull Requests el código se construye y verifica, pero el push está desactivado.
+   - **Evidencia:** [Actions Run 37405656099](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/runs/37405656099), donde se observa el step de autenticación al registry salteado a pesar de tener los tests aprobados.
+3. **Tercer eslabón — El paso que publica es el ÚLTIMO del job:**
+   - En GitHub Actions, los pasos de un job se ejecutan secuencialmente y abortan inmediatamente ante el primer error (código de salida $\ne 0$).
+   - Al ubicar la construcción y publicación final debajo de los tests y sin condicionales de tipo `always()` o `!cancelled()`, si los tests fallan, el step de publicación **nunca llega a ejecutarse**.
+   - **Evidencia:** [Actions Run 37405896826](https://github.com/SantinoSchiavoni/ingsoft3-tp01/actions/runs/37405896826), donde se comprueba el orden exacto de ejecución en `main`.
+
+> **Garantía del pipeline vs. alcance físico:**
+> Esta cadena garantiza que **el pipeline** nunca publicará por accidente una imagen no verificada. No impide que alguien con permisos haga un `docker push` manual desde su máquina local, pero formaliza el proceso automatizado del repositorio.
+
+### 1.3 Identificación y nombrado de la imagen
+Las imágenes se publican bajo el esquema:
+`ghcr.io/santinoschiavoni/ingsoft3-tp01-<servicio>:sha-<commit>`
+
+- **Trazabilidad por commit (`:sha-${{ github.sha }}`):** Permite vincular de forma biunívoca la imagen en ejecución con el código exacto y el run de CI que la originó. Responde con certeza técnica a la pregunta: *«¿lo que está corriendo en producción es lo que se verificó en este commit?»*.
+- **Restricción de minúsculas en GHCR:** El nombre del repositorio (`SantinoSchiavoni/ingsoft3-tp01`) contiene mayúsculas. Dado que la especificación de Docker y GitHub Packages rechaza mayúsculas con el error `repository name must be lowercase`, se explicitó el namespace en minúsculas (`santinoschiavoni`), evitando fallos en la publicación.
+
+---
+
+## 2. Continuous Delivery vs. Continuous Deployment
+
+### 2.1 Comparación conceptual
+- **Continuous Integration (CI):** El código se integra frecuentemente y se verifica automáticamente (build + tests + análisis estático). Finaliza con la generación de un artefacto validado en el registry.
+- **Continuous Delivery (CD):** Todo cambio verificado queda en estado **listo para desplegarse**, llegando de forma automática a entornos intermedios (QA/Staging), pero el paso final a Producción requiere una **autorización o decisión humana explícita**. El despliegue es una decisión de negocio.
+- **Continuous Deployment:** Todo cambio que aprueba los tests pasa directamente a Producción sin intervención humana. Requiere un nivel muy alto de madurez en tests (unitarios, integración, E2E, performance) y observabilidad automática con capacidad de autorecuperación.
+
+### 2.2 Elección para OrderFlow: Continuous Delivery
+Para el contexto de OrderFlow adoptamos **Continuous Delivery**:
+1. QA se despliega de forma automática e inmediata ante cada merge en `main`.
+2. Producción queda retenida tras un **Gate Humano (Environment protection rule con required reviewers)**.
+3. *Justificación:* Al tratarse de un sistema transaccional de stock y facturación de pedidos, poner cambios en producción sin control de horario o revisión de negocio podría interrumpir operaciones activas. El gate humano permite coordinar ventanas de mantenimiento y verificar la estabilidad en QA antes de impactar a los usuarios finales.
+
+### 2.3 Desacoplamiento entre Deploy y Release
+- **Deploy (Desplegar):** Es la acción técnica de instalar y ejecutar nuevos binarios o contenedores en los servidores.
+- **Release (Publicar / Liberar):** Es el acto de negocio mediante el cual se expone una nueva funcionalidad a los usuarios.
+- Con técnicas como **Feature Flags** es posible desplegar código en producción manteniéndolo inactivo, desacoplando el riesgo técnico de la infraestructura del riesgo del lanzamiento comercial.
+
+---
+
+## 3. Arquitectura de despliegue y separación de entornos (Tareas 2 y 3)
+
+### 3.1 Base de datos aislada por entorno (Neon)
+Para cumplir con el principio de que QA y Producción sean entornos formalmente separados y representativos de la realidad:
+- Se crearon dos bases de datos independientes sobre el mismo proyecto serverless de Neon: **`app_qa`** y **`app_prod`**.
+- Cada entorno posee su propia Connection String (`DATABASE_URL`), garantizando que las pruebas en QA nunca contaminen los datos de producción.
+
+### 3.2 Elección de infraestructura de datos: ¿Por qué Neon y no Render Postgres?
+Elegir infraestructura también implica leer la letra chica de los contratos y tiers gratuitos:
+- **Postgres de Render:** Su plan gratuito tiene una vigencia máxima de **30 días** desde su creación (más 14 días de gracia antes de su eliminación total). Esto es insuficiente para la duración del semestre y provocaría la caída de la base de datos antes de la defensa final de P2.
+- **Neon:** Ofrece un tier gratuito **permanente** para PostgreSQL serverless (con límites razonables de 0.5 GB de almacenamiento y suspensión de cómputo a los 5 minutos de inactividad que se reanuda de forma transparente ante la primera consulta).
+- *Decisión:* Se desacopla la capa de persistencia de Render y se delega en Neon, asegurando que los entornos sigan vivos y operativos sin requerir tarjeta de crédito ni recreaciones mensuales forzadas.
+
+### 3.3 Creación y migración de esquemas en NestJS + Prisma
+A diferencia de la app de cátedra en .NET que utiliza `EnsureCreated()`, en OrderFlow:
+- El contenedor backend ejecuta en su `docker-entrypoint.sh`:
+  ```sh
+  npx prisma migrate deploy
+  ```
+- Al iniciar el servicio por primera vez en Render, Prisma ejecuta automáticamente las migraciones pendientes sobre la base correspondiente (`app_qa` o `app_prod`), creando las tablas `products`, `orders` y `order_items` e inicializando el seed si la base está vacía.
+
+---
+
+## 4. El gate humano y los criterios de aprobación (Tarea 4)
+*(Se documentarán los criterios del reviewer, el flujo de aprobación y la evidencia del rechazo)*
+
+---
+
+## 5. Letra chica del Free Tier y limitaciones del pipeline
+*(Se documentará el comportamiento de Render y Neon, cold starts, minutos de build y límites del smoke test)*
+
+---
+
+## 6. Estrategia de deployment en producción real y plan de rollback (Tarea 6)
+*(Se completará con el análisis de patrones como Canary/Blue-Green y la medición real del tiempo de rollback en Render)*
+
+---
+
+## 7. Problemas encontrados y soluciones
+*(Se irán registrando las dificultades encontradas durante el desarrollo de las tareas)*
+
+---
+
+## 8. Declaración de uso de IA
+*(Se detallará la asistencia de IA y su verificación técnica)*
