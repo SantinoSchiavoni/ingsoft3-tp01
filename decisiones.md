@@ -7,6 +7,7 @@
 5. [TP5 — Calidad automatizada: tests, coverage y el umbral que frena un merge](#tp5--calidad-automatizada-tests-coverage-y-el-umbral-que-frena-un-merge)
 6. [TP6 — CD: environments, aprobaciones y deployment patterns](#tp6--cd-environments-aprobaciones-y-deployment-patterns)
 7. [TP7 — Contenedores en el pipeline + integración y e2e](#tp7--contenedores-en-el-pipeline--integración-y-e2e)
+8. [TP8 — Infraestructura como Código (IaC)](#tp8---infraestructura-como-código-iac)
 
 ---
 
@@ -917,4 +918,89 @@ Se utilizó asistencia de IA como pair programmer para:
 - Diseñar e implementar el caso de uso `DeleteOrderUseCase` y su integración en la arquitectura hexagonal del backend con sus pruebas unitarias.
 - Documentar las justificaciones arquitectónicas, análisis de métricas y respuestas conceptuales en `decisiones.md`.
 - Toda la configuración técnica, ejecución de pruebas locales y remotas, y resolución de dependencias fueron verificadas empíricamente.
+
+---
+
+# TP8 — Infraestructura como Código (IaC)
+
+## 1. Riel tecnológico y versiones fijadas de los providers
+
+- **Riel elegido:** Riel canónico de la cátedra con **Terraform + Neon + Render** sobre el proyecto existente **OrderFlow**.
+- **Versiones fijadas de providers:**
+  - `kislerdm/neon`: versión fija **`0.18.0`** (la última disponible y funcional en el registro, previniendo roturas por cambios de nombres de atributos como `default_branch_id` vs `branch_id`).
+  - `render-oss/render`: versión fija **`1.9.1`**.
+- **Motivo de fijar versiones:** Es la primera regla de higiene en IaC para garantizar reproducibilidad exacta y que `terraform init` no descargue versiones imprevistas que rompan la compilación del HCL.
+
+## 2. Decisiones de arquitectura y diseño
+
+### 2.1 Entorno `preprod` independiente y efímero
+- **Proyecto propio en Neon:** Se definió `orderflow-preprod` como un proyecto independiente en Neon (y no una base adicional dentro del proyecto existente de QA/PROD). Esto permite desacoplar los ciclos de vida y realizar un `terraform destroy` completo de preprod sin riesgo alguno sobre QA ni Producción.
+- **Límite de historial en plan gratuito:** Se configuró explícitamente `history_retention_seconds = 21600` (6 horas) en `neon_project.preprod`, dado que el provider solicita por defecto 86400 segundos (24 horas) y la API de Neon en su plan gratuito rechaza cualquier valor superior a 21600 segundos.
+- **Cuota compartida del Free Tier (Render):** El plan gratuito de Render otorga 750 horas de cómputo mensuales compartidas entre todos los servicios del workspace. Al sumar los 2 servicios de preprod (API y Frontend) a los 4 existentes (QA y PROD), el workspace alcanza 6 servicios. Por este motivo, `preprod` se diseña como un entorno efímero que nace para validar (`apply`) y se destruye inmediatamente tras su uso (`destroy`), preservando la cuota para la continuidad de producción.
+
+### 2.2 Gestión de secretos y derivación de credenciales
+- **Cero credenciales en el código:** Los providers leen `NEON_API_KEY`, `RENDER_API_KEY` y `RENDER_OWNER_ID` exclusivamente desde las variables de entorno del sistema operativo.
+- **Derivación estricta:** La cadena de conexión a PostgreSQL se construye dinámicamente con los atributos provistos por Neon (`database_host`, `name`, `password`), y la `BACKEND_URL` del frontend se deriva directamente del atributo `url` del servicio API. Ninguna URL ni secreto se copia o pega manualmente.
+- **Formato de conexión específico del stack (NestJS + Prisma vs .NET):** A diferencia de la app de ejemplo de la cátedra que utiliza el formato ADO.NET (`Host=...;Database=...`) inyectado en `ConnectionStrings__Default`, en OrderFlow se adaptó la cadena al formato URI estándar de PostgreSQL (`postgresql://${user}:${pass}@${host}/${db}?sslmode=require`) inyectado en la variable de entorno `DATABASE_URL` que consume Prisma.
+- **Protección de salidas:** En `infra/outputs.tf` solo se exponen `db_host` y `database`. La contraseña del rol y la connection string completa no se emiten por output para impedir su exposición en logs de terminal o trazas de CI.
+
+### 2.3 Memoria de la herramienta y protección del estado (`terraform.tfstate`)
+- **Estado local:** El estado reside localmente en `infra/terraform.tfstate`. Al no configurar un bloque `backend`, Terraform gestiona la memoria de los recursos creados en este archivo local.
+- **Protección con `.gitignore`:** Antes de la primera ejecución se configuró `.gitignore` para cubrir `*.tfstate`, `*.tfstate.*`, `.terraform/` y `*.tfvars`. Esta medida es crítica dado que el archivo de estado almacena atributos sensibles en texto plano.
+- **Comprobación empírica de seguridad e idempotencia:**
+  1. *Inspección del estado:* Mediante `grep -i -o 'password[^,]\{0,60\}' terraform.tfstate` se comprobó que la contraseña del rol de Neon queda efectivamente guardada en texto plano dentro del JSON de estado. Con `git status -u` se verificó que Git no rastrea dicho archivo.
+  2. *Idempotencia demostrada:* Tras el primer `apply`, se ejecutó nuevamente `terraform plan`, obteniendo la respuesta:
+     ```text
+     No changes. Your infrastructure matches the configuration.
+     ```
+     Esto valida que la re-aplicación sucesiva de la configuración declarativa converge sin duplicar ni corromper recursos.
+
+### 2.4 Comprobación de salud, persistencia y migraciones automáticas
+- **Health check:** Se ejecutó `curl -i "$(terraform output -raw api_url)/health"` obteniendo respuesta HTTP 200 con `{"status":"ok", "database":"ok"}`.
+- **Persistencia y esquema automático:** La consulta a `curl -i "$(terraform output -raw api_url)/api/products"` retornó HTTP 200 con los 4 productos iniciales del catálogo. Esto demostró que al conectarse por primera vez a la base vacía de Neon, el script `docker-entrypoint.sh` del contenedor ejecutó `prisma migrate deploy`, aplicó las migraciones y corrió el seed exitosamente, validando la cadena de extremo a extremo.
+
+### 2.5 Red de seguridad con `prevent_destroy`
+- **Protección contra destrucción accidental:** Se incorporó el bloque `lifecycle { prevent_destroy = true }` dentro de `neon_database.preprod` para comprobar la directiva de seguridad del lenguaje Terraform.
+- **Comportamiento empírico:** Al intentar un `terraform destroy`, la herramienta aborta de inmediato con un error de protección, impidiendo que una persona o un pipeline destruya un recurso crítico con datos persistentes.
+- **De qué NO salva:** Esta protección evita destrucciones cuando el recurso sigue declarado en el código; no previene la destrucción si un desarrollador elimina por completo el bloque del archivo `.tf`. Por ello, la verdadera seguridad en producción es la revisión humana en Pull Requests combinada con backups automatizados.
+- **Carácter efímero de preprod:** Tras verificar el rechazo de Terraform ante el intento de destrucción, la directiva se remueve en preprod para permitir su ciclo de vida normal de nacer y morir según demanda.
+
+### 2.6 Drift: Alcance y límites de la detección
+- **Qué detecta Terraform:** Si un recurso gobernado por el código es modificado o eliminado manualmente por fuera (por ejemplo, borrando una base en la consola de Neon), el próximo `terraform plan` refresca el estado contra la API del proveedor, detecta la divergencia y propone converger recreando lo faltante (`Plan: 1 to add`).
+- **Qué NO detecta:** Terraform vigila exclusivamente los recursos que están declarados en su configuración. Los entornos de QA y Producción, o cualquier recurso creado manualmente en Neon/Render que no forme parte de `infra/`, son completamente invisibles para `terraform plan` (reportando «No changes»). Un plan limpio no garantiza la ausencia de recursos intrusos en la cuenta cloud.
+
+## 3. Problemas encontrados y soluciones
+
+1. **Incompatibilidad de sintaxis en Fedora 44 con DNF 5 al instalar Terraform:**
+   - *Problema:* Al intentar agregar el repositorio oficial de HashiCorp ejecutando `sudo dnf config-manager --add-repo ...`, el comando falló arrojando:
+     ```text
+     Unknown argument "--add-repo" for command "config-manager". Add "--help" for more information about the arguments.
+     ```
+     En Fedora 44, el gestor de paquetes por defecto es **DNF 5**, el cual modificó la sintaxis de sus plugins y ya no soporta el flag tradicional `--add-repo`.
+   - *Solución:* Se utilizó la sintaxis correspondiente a DNF 5 mediante el subcomando `sudo dnf config-manager addrepo --from-repofile=https://rpm.releases.hashicorp.com/fedora/hashicorp.repo`, procediendo luego a la instalación limpia de Terraform v1.16.6 con `sudo dnf install -y terraform`.
+
+2. **Requerimiento mandatorio de Organización en Neon (`org_id is required`):**
+   - *Problema:* Durante el primer `terraform apply`, la API de Neon rechazó la creación de `neon_project.preprod` con el error:
+     ```text
+     Error: [HTTP Code: 400] org_id is required, you can find it on your organization settings page
+     ```
+     Esto se debió a que la cuenta de usuario en Neon se encuentra bajo la estructura de una Organización (`org-...`), por lo cual la API de Neon no permite crear proyectos en la raíz de la cuenta sin asignarle explícitamente el identificador de dicha organización.
+   - *Solución:* Se inspeccionó el esquema del recurso mediante `terraform providers schema -json`, confirmando que el atributo `org_id` está soportado en `neon_project`. Se obtuvo el identificador de la organización (`org-morning-voice-54944710`) desde *Organization Settings* en la consola de Neon y se agregó `org_id = "org-morning-voice-54944710"` dentro del bloque `neon_project.preprod` en `infra/main.tf`. La reejecución del `apply` procedió exitosamente.
+
+3. **Discrepancia en `RENDER_OWNER_ID` entre URL web y API de Render (`invalid ownerID`):**
+   - *Problema:* Al aplicar los recursos de Render (`render_web_service`), la API devolvió:
+     ```text
+     Could not create service, unexpected error: could not create service: invalid ownerID: usr-db5pilavcj2c738rbjog. valid owner IDs can be found using the /v1/owners API.
+     ```
+     La URL del navegador contenía un identificador con prefijo `usr-...`, pero los servicios pertenecen a un workspace de equipo (*team*) con un ID interno diferente.
+   - *Solución:* Se consultó el endpoint oficial de Render mediante `curl -s -H "Authorization: Bearer $RENDER_API_KEY" https://api.render.com/v1/owners`, obteniendo el identificador canónico del workspace (`tea-db5pilavcj2c738rbji0`). Se exportó nuevamente `export RENDER_OWNER_ID="tea-db5pilavcj2c738rbji0"` en la sesión de terminal y el aprovisionamiento procedió sin inconvenientes.
+
+## 4. Declaración de uso de IA
+
+Se utilizó asistencia de IA como pair programmer para:
+- Estructurar los archivos de configuración de Terraform (`main.tf`, `variables.tf`, `outputs.tf`) con providers fijados (`kislerdm/neon` 0.18.0 y `render-oss/render` 1.9.1).
+- Adaptar las variables de entorno y cadena de conexión desde el modelo de cátedra (.NET) a la arquitectura de OrderFlow (NestJS + Prisma con URI `postgresql://`).
+- Diagnosticar los errores de aprovisionamiento en vivo mediante inspección de esquemas y llamadas a las APIs de Neon y Render (`org_id` y `owner_id`).
+- Documentar las justificaciones arquitectónicas, principios de idempotencia, ciclo de vida efímero y análisis de seguridad en `decisiones.md`.
+- Toda la configuración técnica fue ejecutada, validada y comprobada empíricamente en vivo contra las plataformas cloud de Neon y Render.
 
