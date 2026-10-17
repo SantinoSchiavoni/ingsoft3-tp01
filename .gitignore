@@ -31,3 +31,9 @@ Thumbs.db
 # archivos playwright
 playwright-report/
 test-results/
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfvars        # ahí van los valores locales
