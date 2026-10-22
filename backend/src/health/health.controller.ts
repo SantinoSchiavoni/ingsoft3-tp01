@@ -1,4 +1,5 @@
 import { Controller, Get } from "@nestjs/common";
+import * as Sentry from "@sentry/nestjs";
 import { PrismaService } from "../prisma/prisma.service";
 
 export interface HealthResponse {
@@ -32,5 +33,12 @@ export class HealthController {
   @Get("api/health")
   async checkApi(): Promise<HealthResponse> {
     return this.check();
+  }
+
+  @Get("api/falla")
+  falla(): string {
+    const error = new Error("Falla de prueba del TP9");
+    Sentry.captureException(error);
+    throw error;
   }
 }

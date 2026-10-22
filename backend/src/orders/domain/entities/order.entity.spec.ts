@@ -22,20 +22,17 @@ describe("Order Domain Entity - Unit Tests (AAA)", () => {
       [-1, "negativo"],
       [1.5, "decimal"],
       [-10, "negativo grande"],
-    ])(
-      "rechaza cantidad inválida: %s (%s)",
-      (cantidadInvalida) => {
-        // Arrange & Act & Assert
-        expect(() => {
-          new OrderItem({
-            productId: 1,
-            productName: "Monitor 24",
-            unitPrice: 200,
-            quantity: cantidadInvalida,
-          });
-        }).toThrow(InvalidQuantityError);
-      },
-    );
+    ])("rechaza cantidad inválida: %s (%s)", (cantidadInvalida) => {
+      // Arrange & Act & Assert
+      expect(() => {
+        new OrderItem({
+          productId: 1,
+          productName: "Monitor 24",
+          unitPrice: 200,
+          quantity: cantidadInvalida,
+        });
+      }).toThrow(InvalidQuantityError);
+    });
 
     it("rechaza precio unitario menor o igual a cero (Caso de error)", () => {
       // Arrange
