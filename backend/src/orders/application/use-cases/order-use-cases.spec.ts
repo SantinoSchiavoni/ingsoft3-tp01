@@ -86,11 +86,14 @@ describe("Order Use Cases (Application Layer) - Unit Tests (AAA)", () => {
 
       // Assert: verificar estado retornado e INTERACCIÓN con el mock
       expect(confirmedOrder.status).toBe(OrderStatus.CONFIRMED);
-      expect(mockOrderRepository.confirmWithStockDeduction).toHaveBeenCalledTimes(1);
-      expect(mockOrderRepository.confirmWithStockDeduction).toHaveBeenCalledWith(
-        expect.anything(),
-        [{ productId: 1, quantity: 3 }],
-      );
+      expect(
+        mockOrderRepository.confirmWithStockDeduction,
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        mockOrderRepository.confirmWithStockDeduction,
+      ).toHaveBeenCalledWith(expect.anything(), [
+        { productId: 1, quantity: 3 },
+      ]);
     });
 
     it("confirmar pedido sin stock suficiente lanza InsufficientStockError y NUNCA persiste descuento (Caso de error)", async () => {
@@ -126,10 +129,14 @@ describe("Order Use Cases (Application Layer) - Unit Tests (AAA)", () => {
       );
 
       // Act & Assert
-      await expect(useCase.execute(100)).rejects.toThrow(InsufficientStockError);
+      await expect(useCase.execute(100)).rejects.toThrow(
+        InsufficientStockError,
+      );
 
       // Verificamos que el mock NUNCA fue llamado para deducir stock
-      expect(mockOrderRepository.confirmWithStockDeduction).not.toHaveBeenCalled();
+      expect(
+        mockOrderRepository.confirmWithStockDeduction,
+      ).not.toHaveBeenCalled();
     });
 
     it("cancelar pedido confirmado restaura stock e invoca cancelWithStockRestoration en el repositorio", async () => {
@@ -160,11 +167,14 @@ describe("Order Use Cases (Application Layer) - Unit Tests (AAA)", () => {
 
       // Assert
       expect(cancelledOrder.status).toBe(OrderStatus.CANCELLED);
-      expect(mockOrderRepository.cancelWithStockRestoration).toHaveBeenCalledTimes(1);
-      expect(mockOrderRepository.cancelWithStockRestoration).toHaveBeenCalledWith(
-        expect.anything(),
-        [{ productId: 1, quantity: 2 }],
-      );
+      expect(
+        mockOrderRepository.cancelWithStockRestoration,
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        mockOrderRepository.cancelWithStockRestoration,
+      ).toHaveBeenCalledWith(expect.anything(), [
+        { productId: 1, quantity: 2 },
+      ]);
     });
 
     it("crear pedido con producto inactivo lanza ProductInactiveError y no guarda en base de datos (Caso de error)", async () => {

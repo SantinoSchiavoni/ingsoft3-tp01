@@ -1004,3 +1004,62 @@ Se utilizó asistencia de IA como pair programmer para:
 - Documentar las justificaciones arquitectónicas, principios de idempotencia, ciclo de vida efímero y análisis de seguridad en `decisiones.md`.
 - Toda la configuración técnica fue ejecutada, validada y comprobada empíricamente en vivo contra las plataformas cloud de Neon y Render.
 
+
+
+---
+
+# TP9 — DevSecOps, Observabilidad y Continuous Feedback
+
+## 1. Decisiones técnicas y configuración de seguridad (Shift-Left)
+
+### 1.1 Dependabot y gestión de dependencias (SCA)
+- **Configuración multi-ecosistema:** Se implementó [.github/dependabot.yml](.github/dependabot.yml) cubriendo los tres ecosistemas de dependencias del proyecto:
+  - Backend: `npm` en `/backend`.
+  - Frontend: `npm` en `/frontend`.
+  - Acciones CI/CD: `github-actions` en `/`.
+  Todos con frecuencia de revisión semanal.
+- **Análisis y merge del Pull Request de Dependabot:**
+  - **PR elegido:** `chore(deps): bump actions/checkout from 6 to 7` (PR #43).
+  - **Qué actualizaba:** La GitHub Action oficial utilizada a lo largo de todo [.github/workflows/ci.yml](.github/workflows/ci.yml) para clonar el repositorio en los runners. La versión 7 migra a módulos ESM e incorpora mejoras de seguridad contra ataques en flujos de PRs de forks (*safer pull_request_target*).
+  - **Por qué nos animamos a mergearlo:** Porque el arnés completo de CI/CD del semestre (`build-backend` y `build-frontend`) ejecutó sobre la rama del PR y finalizó **100% verde**. Los tests unitarios, de integración, cobertura y linter validaron que el cambio no introdujo incompatibilidades.
+
+### 1.2 Análisis estático de seguridad (SAST con CodeQL)
+- **Activación:** Se configuró CodeQL mediante la configuración por defecto de GitHub (*Default setup*) para escanear JavaScript, TypeScript y flujos de GitHub Actions en cada push y pull request.
+- **Hallazgos detectados:** Se identificaron 4 alertas de severidad media correspondientes a la regla *«Workflow does not contain permissions»* en los jobs `deploy-qa`, `integracion`, `e2e` y `deploy-prod` de [.github/workflows/ci.yml](.github/workflows/ci.yml).
+- **Análisis de seguridad:** Al omitir la declaración explícita de `permissions:`, los jobs heredan los permisos predeterminados del repositorio, violando el principio de menor privilegio (*least privilege*). Corresponde a la categoría OWASP *Security Misconfiguration / CI/CD Pipeline Security*.
+
+### 1.3 Protección de secretos (Push Protection)
+- **Verificación:** Se verificó la activación de *Secret Scanning* y *Push Protection* en el repositorio.
+- **Alcance y límites:** Push Protection intercepta en la fase de push credenciales que coincidan con patrones conocidos y con checksums válidos (como tokens de GitHub, AWS, Stripe). No detecta secretos en formatos arbitrarios ni contraseñas inventadas sin patrón reconocible, por lo que las capas previas del arco de seguridad (.env gitignoreado, secretos encriptados en CI/CD y variables de entorno por plataforma) siguen siendo indispensables.
+
+## 2. Observabilidad y Monitoreo Externo
+
+### 2.1 Monitoreo externo con UptimeRobot
+- **Endpoint monitoreado:** `https://orderflow-api-prod.onrender.com/health` con intervalo de chequeo cada 5 minutos y alertas por correo electrónico.
+- **Compatibilidad con método HEAD:** Al estar construido sobre NestJS con adaptador Express, el endpoint `/health` responde de forma nativa a peticiones `HEAD` con `HTTP/2 200 OK`, garantizando que el plan gratuito de UptimeRobot no genere falsos positivos por 405 Method Not Allowed.
+- **Caída controlada y tiempos de detección:**
+  - *Tiempo de detección de caída (DOWN):* Menos de 1 minuto (detectado en el primer ciclo de sondeo del monitor, pasando a estado *Down* tras suspender el servicio).
+  - *Tiempo de recuperación (UP):* Aproximadamente 4 a 5 minutos (tiempo de reanudación del contenedor en Render, inicialización de la API y confirmación del sondeo en UptimeRobot).
+- **Política de uso de cuota (Render Free Tier):** Finalizada la prueba con el par DOWN/UP verificado en el historial del panel, el monitor se **pausó** inmediatamente para evitar que las consultas continuas cada 5 minutos mantengan la instancia despierta de forma permanente, agotando las 750 horas mensuales compartidas de Render.
+
+### 2.2 Telemetría y comportamiento en producción (Sentry)
+- **Operación más usada:** [Pendiente de medición con Sentry]
+- **Operación más lenta:** [Pendiente de medición con Sentry: endpoint y P95]
+- **Error capturado en producción:** [Pendiente de registro con Sentry]
+- **Tarjeta en el tablero de trabajo (Continuous Feedback):** [Pendiente de vinculación con el dato obtenido]
+
+## 3. Problemas encontrados y soluciones
+
+1. **Permisos implícitos en jobs de GitHub Actions identificados por CodeQL:**
+   - *Problema:* CodeQL reportó 4 advertencias de severidad media por falta del bloque `permissions:` en los jobs `deploy-qa`, `integracion`, `e2e` y `deploy-prod`.
+   - *Solución:* Se analizó el hallazgo reconociendo que los jobs sin permisos explícitos heredan privilegios innecesarios del repositorio. Para asegurar el principio de menor privilegio se restringe el alcance declarando `permissions: contents: read` en las tareas de lectura y solo los scopes estrictamente requeridos.
+
+## 4. Declaración de uso de IA
+
+Se utilizó asistencia de IA como pair programmer para:
+- Estructurar la configuración de [.github/dependabot.yml](.github/dependabot.yml) para múltiples ecosistemas (npm backend, npm frontend y github-actions).
+- Analizar el impacto de seguridad, SemVer y changelog del Pull Request de Dependabot (#43).
+- Interpretar los hallazgos de seguridad arrojados por CodeQL sobre los workflows de GitHub Actions.
+- Planificar la estrategia de observabilidad y monitoreo externo con UptimeRobot considerando los límites de cuota de Render.
+- Documentar las justificaciones técnicas y decisiones operacionales en `decisiones.md`.
+- Toda la configuración técnica, verificación de endpoints y flujos de ejecución fueron validados empíricamente en vivo por el desarrollador.
